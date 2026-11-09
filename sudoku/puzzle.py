@@ -6,6 +6,7 @@ from sudoku.constraints import (
     NotEqualConstraint,
     NonConsecutiveConstraint,
     GermanWhispersConstraint,
+    RenbanConstraint,
     generate_king_pairs,
     generate_knight_pairs,
     generate_orthogonal_pairs
@@ -219,6 +220,47 @@ class SudokuPuzzle:
 
         self.add_constraint(
             GermanWhispersConstraint(cells)
+        )
+
+
+    def add_renban(self, cells):
+        """
+        Add a Renban line.
+
+        cells: ordered list of (row, column) coordinates
+        forming a connected path. Adjacent cells on the
+        line must be orthogonally or diagonally adjacent
+        on the grid.
+        """
+        cells = list(cells)
+
+        if not 2 <= len(cells) <= 9:
+            raise ValueError(
+                "A Renban line needs between two and nine cells."
+            )
+
+        if len(set(cells)) != len(cells):
+            raise ValueError(
+                "A Renban line cannot repeat a cell."
+            )
+
+        if any(cell not in self.domains for cell in cells):
+            raise ValueError(
+                "Renban line references invalid cells."
+            )
+
+        for a, b in zip(cells, cells[1:]):
+            dr = abs(a[0] - b[0])
+            dc = abs(a[1] - b[1])
+
+            if max(dr, dc) != 1:
+                raise ValueError(
+                    "Renban cells must be orthogonally "
+                    "or diagonally adjacent."
+                )
+
+        self.add_constraint(
+            RenbanConstraint(cells)
         )
 
 

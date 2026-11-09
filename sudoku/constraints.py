@@ -750,6 +750,204 @@ class GermanWhispersConstraint(Constraint):
             changed = True
 
 
+class RenbanConstraint(Constraint):
+    """
+    Renban line.
+
+    A line of N cells must contain N distinct consecutive
+    digits in any order, e.g. 4-6-5-7 on a 4-cell line.
+
+    Completed lines must satisfy both:
+    - All values are distinct.
+    - max(values) - min(values) == N - 1.
+    """
+
+    def __init__(self, cells):
+        cells = tuple(cells)
+
+        if not 2 <= len(cells) <= 9:
+            raise ValueError(
+                "A Renban line needs between two and nine cells."
+            )
+
+        if len(set(cells)) != len(cells):
+            raise ValueError(
+                "A Renban line cannot repeat a cell."
+            )
+
+        super().__init__(cells)
+
+        # Cache domain-specific propagation results.
+        self._support_cache = {}
+
+    def is_satisfied(self, assignment):
+        values = [
+            assignment[cell]
+            for cell in self.variables
+            if cell in assignment
+        ]
+
+        if not values:
+            return True
+
+        if len(values) != len(set(values)):
+            return False
+
+        # Every assigned value must fit inside one
+        # consecutive interval of the line's length.
+        return max(values) - min(values) <= len(self.variables) - 1
+
+    def _window_supports(self, domains, window):
+        """
+        Collect supported (cell, value) pairs for one
+        consecutive digit interval.
+
+        A value is supported when it appears in at least
+        one complete, distinct assignment of the window's
+        digits to the line's cells.
+
+        Returns None if the window admits no assignment.
+        """
+        allowed = {
+            cell: domains[cell] & window
+            for cell in self.variables
+        }
+
+        # Every cell needs a candidate in the window.
+        if any(not values for values in allowed.values()):
+            return None
+
+        # Every digit in the window needs a possible cell.
+        if any(
+            not any(digit in allowed[cell] for cell in self.variables)
+            for digit in window
+        ):
+            return None
+
+        # Search cells with the fewest candidates first.
+        order = sorted(
+            self.variables,
+            key=lambda cell: len(allowed[cell])
+        )
+
+        def extend(index, remaining, chosen):
+            """Complete one assignment, honoring seeds in chosen."""
+            if index == len(order):
+                return True
+
+            cell = order[index]
+
+            if cell in chosen:
+                return extend(index + 1, remaining, chosen)
+
+            for value in allowed[cell] & remaining:
+                chosen[cell] = value
+
+                if extend(index + 1, remaining - {value}, chosen):
+                    return True
+
+                del chosen[cell]
+
+            return False
+
+        supports = {cell: set() for cell in self.variables}
+
+        # Seed one search per unsupported pair. Each found
+        # assignment supports every pair it contains, so few
+        # searches are needed in practice.
+        for cell in order:
+            for value in allowed[cell]:
+                if value in supports[cell]:
+                    continue
+
+                chosen = {cell: value}
+
+                if extend(0, window - {value}, chosen):
+                    for var, chosen_value in chosen.items():
+                        supports[var].add(chosen_value)
+
+        if any(not supports[cell] for cell in self.variables):
+            return None
+
+        return supports
+
+    def propagate(self, domains):
+        """
+        Keep only values that participate in at least one
+        complete assignment of some consecutive interval.
+        """
+        n = len(self.variables)
+
+        key = tuple(
+            frozenset(domains[var])
+            for var in self.variables
+        )
+
+        if key in self._support_cache:
+            cached = self._support_cache[key]
+
+            if cached is None:
+                raise ValueError(
+                    "Renban line has no valid assignments"
+                )
+
+            supports = {
+                var: set(values)
+                for var, values in zip(self.variables, cached)
+            }
+
+        else:
+            supports = {var: set() for var in self.variables}
+
+            for low in range(1, 11 - n):
+                window = frozenset(range(low, low + n))
+
+                window_supports = self._window_supports(
+                    domains, window
+                )
+
+                if window_supports is None:
+                    continue
+
+                for var in self.variables:
+                    supports[var].update(window_supports[var])
+
+                # Stop early once nothing can be pruned.
+                if all(
+                    supports[var] == domains[var]
+                    for var in self.variables
+                ):
+                    break
+
+            # Detect contradictions before mutating domains.
+            if any(not supports[var] for var in self.variables):
+                self._support_cache[key] = None
+                raise ValueError(
+                    "Renban line has no valid assignments"
+                )
+
+            self._support_cache[key] = tuple(
+                frozenset(supports[var])
+                for var in self.variables
+            )
+
+        changed = False
+
+        for var in self.variables:
+            retained = domains[var] & supports[var]
+
+            if not retained:
+                raise ValueError(
+                    "Renban line has no valid assignments"
+                )
+
+            if retained != domains[var]:
+                domains[var] = retained
+                changed = True
+
+        return changed
+
+
 def generate_knight_pairs():
     """
     Generate every unique pair of cells connected

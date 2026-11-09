@@ -4,6 +4,7 @@ from sudoku.constraints import (
     NotEqualConstraint,
     NonConsecutiveConstraint,
     GermanWhispersConstraint,
+    RenbanConstraint,
 )
 
 def validate_solution(puzzle, solution):
@@ -147,5 +148,25 @@ def validate_solution(puzzle, solution):
                         f"R{a[0] + 1}C{a[1] + 1} and "
                         f"R{b[0] + 1}C{b[1] + 1}"
                     )
+
+        elif isinstance(constraint, RenbanConstraint):
+            cells = constraint.variables
+            values = [solution.get(cell) for cell in cells]
+
+            if any(value is None for value in values):
+                errors.append(
+                    f"Renban line is incomplete: {cells}"
+                )
+
+            elif len(values) != len(set(values)):
+                errors.append(
+                    f"Renban line repeats a digit: {cells}"
+                )
+
+            elif max(values) - min(values) != len(cells) - 1:
+                errors.append(
+                    f"Renban line digits are not consecutive: "
+                    f"{cells}"
+                )
         
     return errors

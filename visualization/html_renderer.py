@@ -9,7 +9,8 @@ from sudoku.constraints import (
     ThermometerConstraint,
     NotEqualConstraint,
     NonConsecutiveConstraint,
-    GermanWhispersConstraint
+    GermanWhispersConstraint,
+    RenbanConstraint
 )
 
 
@@ -24,6 +25,7 @@ VARIANT_STYLES = {
     "anti-king": ("♚", "Anti-King"),
     "nonconsecutive": ("↔", "Nonconsecutive"),
     "whispers": ("≋", "German Whispers"),
+    "renban": ("≡", "Renban"),
 }
 
 
@@ -106,6 +108,7 @@ def render_puzzle(
     cages = []
     thermometers = []
     whisper_lines = []
+    renban_lines = []
     diagonal_cells = set()
     anti_knight_neighbors = {
         (r, c): set()
@@ -189,6 +192,15 @@ def render_puzzle(
                 f"{cell_label(cells[-1])}"
             )
             whisper_lines.append(constraint)
+
+        elif isinstance(constraint, RenbanConstraint):
+            kind = "renban"
+            label = (
+                f"{variant_title(kind)} — "
+                f"{cell_label(cells[0])} to "
+                f"{cell_label(cells[-1])}"
+            )
+            renban_lines.append(constraint)
 
         elif (
             isinstance(constraint, AllDifferentConstraint)
@@ -407,6 +419,25 @@ def render_puzzle(
             'stroke-linejoin="round"/>'
         )
 
+    # Layer 5c: Renban lines
+    for line in renban_lines:
+        cells = list(line.variables)
+
+        points = [center(cell) for cell in cells]
+
+        path = " ".join(
+            f"{x},{y}" for x, y in points
+        )
+
+        elements.append(
+            f'<polyline class="renban-layer" '
+            f'points="{path}" fill="none" '
+            'stroke="#9333ea" stroke-width="12" '
+            'stroke-opacity="0.65" '
+            'stroke-linecap="round" '
+            'stroke-linejoin="round"/>'
+        )
+
     # Layer 6: Killer cages
     inset = 5
 
@@ -533,6 +564,7 @@ def render_puzzle(
         "anti-king": has_anti_king,
         "nonconsecutive": has_nonconsecutive,
         "whispers": bool(whisper_lines),
+        "renban": bool(renban_lines),
     }
 
     variant_badges = [
@@ -675,6 +707,7 @@ def render_puzzle(
     .diagonal-layer,
     .thermometer-layer,
     .whispers-layer,
+    .renban-layer,
     .killer-layer {{
         pointer-events: none;
     }}
@@ -746,6 +779,12 @@ def render_puzzle(
                 <input type="checkbox" checked
                        onchange="toggleLayer('whispers', this.checked)">
                 German Whispers
+            </label>
+
+            <label>
+                <input type="checkbox" checked
+                       onchange="toggleLayer('renban', this.checked)">
+                Renban
             </label>
 
             <label>
