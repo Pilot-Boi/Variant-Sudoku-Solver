@@ -648,6 +648,108 @@ class NonConsecutiveConstraint(Constraint):
         return changed
 
 
+class GermanWhispersConstraint(Constraint):
+    """
+    German Whispers line.
+
+    Adjacent cells along the line must contain
+    digits that differ by at least 5.
+
+    Valid examples:
+        (1, 6), (9, 4), (2, 7)
+
+    Invalid examples:
+        (3, 4), (6, 9), (5, 5)
+    """
+
+    MINIMUM_DIFFERENCE = 5
+
+    def __init__(self, cells):
+        cells = tuple(cells)
+
+        if len(cells) < 2:
+            raise ValueError(
+                "A German Whispers line needs at least two cells."
+            )
+
+        if len(set(cells)) != len(cells):
+            raise ValueError(
+                "A German Whispers line cannot repeat a cell."
+            )
+
+        super().__init__(cells)
+
+    def is_satisfied(self, assignment):
+        minimum = self.MINIMUM_DIFFERENCE
+
+        for a, b in zip(self.variables, self.variables[1:]):
+            if a not in assignment or b not in assignment:
+                continue
+
+            if abs(assignment[a] - assignment[b]) < minimum:
+                return False
+
+        return True
+
+    def _restrict_pair(self, domains, a, b):
+        """
+        Enforce arc consistency between one adjacent
+        pair of cells on the line.
+        """
+        minimum = self.MINIMUM_DIFFERENCE
+
+        domain_a = domains[a]
+        domain_b = domains[b]
+
+        if not domain_a or not domain_b:
+            raise ValueError("Empty domain")
+
+        supported_a = {
+            x for x in domain_a
+            if any(abs(x - y) >= minimum for y in domain_b)
+        }
+
+        supported_b = {
+            y for y in domain_b
+            if any(abs(x - y) >= minimum for x in domain_a)
+        }
+
+        if not supported_a or not supported_b:
+            raise ValueError(
+                "GermanWhispersConstraint contradiction"
+            )
+
+        changed = (
+            supported_a != domain_a
+            or supported_b != domain_b
+        )
+
+        if changed:
+            domains[a] = supported_a
+            domains[b] = supported_b
+
+        return changed
+
+    def propagate(self, domains):
+        """
+        Repeatedly enforce arc consistency along every
+        adjacent pair until the domains are stable.
+        """
+        changed = False
+
+        while True:
+            pass_changed = False
+
+            for a, b in zip(self.variables, self.variables[1:]):
+                if self._restrict_pair(domains, a, b):
+                    pass_changed = True
+
+            if not pass_changed:
+                return changed
+
+            changed = True
+
+
 def generate_knight_pairs():
     """
     Generate every unique pair of cells connected

@@ -128,5 +128,24 @@ def validate_solution(puzzle, solution):
                         f"R{a[0] + 1}C{a[1] + 1} and "
                         f"R{b[0] + 1}C{b[1] + 1}"
                     )
+
+        elif isinstance(constraint, GermanWhispersConstraint):
+            cells = constraint.variables
+            minimum = constraint.MINIMUM_DIFFERENCE
+
+            for a, b in zip(cells, cells[1:]):
+                value_a = solution.get(a)
+                value_b = solution.get(b)
+
+                if (
+                    value_a is None
+                    or value_b is None
+                    or abs(value_a - value_b) < minimum
+                ):
+                    errors.append(
+                        f"German Whispers violation: "
+                        f"R{a[0] + 1}C{a[1] + 1} and "
+                        f"R{b[0] + 1}C{b[1] + 1}"
+                    )
         
     return errors

@@ -8,8 +8,29 @@ from sudoku.constraints import (
     KillerCageConstraint,
     ThermometerConstraint,
     NotEqualConstraint,
-    NonConsecutiveConstraint
+    NonConsecutiveConstraint,
+    GermanWhispersConstraint
 )
+
+
+# Icon and label for every supported variant, used by
+# both the variant badges and the Constraint Inspector.
+# Add new variants here to style them everywhere.
+VARIANT_STYLES = {
+    "thermometer": ("🌡️", "Thermometer"),
+    "killer": ("∑", "Killer Cage"),
+    "diagonal": ("╳", "Diagonal"),
+    "anti-knight": ("♞", "Anti-Knight"),
+    "anti-king": ("♚", "Anti-King"),
+    "nonconsecutive": ("↔", "Nonconsecutive"),
+    "whispers": ("≋", "German Whispers"),
+}
+
+
+def variant_title(kind):
+    """Return the icon-prefixed display name of a variant."""
+    icon, label = VARIANT_STYLES[kind]
+    return f"{icon} {label}"
 
 
 def render_puzzle(
@@ -84,6 +105,7 @@ def render_puzzle(
     inspector_constraints = []
     cages = []
     thermometers = []
+    whisper_lines = []
     diagonal_cells = set()
     anti_knight_neighbors = {
         (r, c): set()
@@ -144,24 +166,36 @@ def render_puzzle(
 
         if isinstance(constraint, KillerCageConstraint):
             kind = "killer"
-            label = f"Killer cage — sum {constraint.target_sum}"
+            label = (
+                f"{variant_title(kind)} — "
+                f"sum {constraint.target_sum}"
+            )
             cages.append(constraint)
 
         elif isinstance(constraint, ThermometerConstraint):
             kind = "thermometer"
             label = (
-                f"Thermometer — "
+                f"{variant_title(kind)} — "
                 f"{cell_label(cells[0])} to "
                 f"{cell_label(cells[-1])}"
             )
             thermometers.append(constraint)
+
+        elif isinstance(constraint, GermanWhispersConstraint):
+            kind = "whispers"
+            label = (
+                f"{variant_title(kind)} — "
+                f"{cell_label(cells[0])} to "
+                f"{cell_label(cells[-1])}"
+            )
+            whisper_lines.append(constraint)
 
         elif (
             isinstance(constraint, AllDifferentConstraint)
             and cell_set == main_diagonal
         ):
             kind = "diagonal"
-            label = "Main diagonal"
+            label = f"{variant_title(kind)} — Main diagonal"
             diagonal_cells.update(cells)
 
         elif (
@@ -169,7 +203,7 @@ def render_puzzle(
             and cell_set == anti_diagonal
         ):
             kind = "diagonal"
-            label = "Anti-diagonal"
+            label = f"{variant_title(kind)} — Anti-diagonal"
             diagonal_cells.update(cells)
 
         elif isinstance(constraint, AllDifferentConstraint):
@@ -206,7 +240,7 @@ def render_puzzle(
             inspector_constraints.append({
                 "id": len(inspector_constraints),
                 "kind": "anti-knight",
-                "label": "♞ Anti-Knight",
+                "label": variant_title("anti-knight"),
                 "cells": [
                     list(cell),
                     *[list(n) for n in ordered_neighbors],
@@ -247,7 +281,7 @@ def render_puzzle(
             inspector_constraints.append({
                 "id": len(inspector_constraints),
                 "kind": "anti-king",
-                "label": "♚ Anti-King",
+                "label": variant_title("anti-king"),
                 "owner": list(cell),
                 "cells": [
                     list(cell),
@@ -274,7 +308,7 @@ def render_puzzle(
             inspector_constraints.append({
                 "id": len(inspector_constraints),
                 "kind": "nonconsecutive",
-                "label": "↔ Nonconsecutive",
+                "label": variant_title("nonconsecutive"),
                 "owner": list(cell),
                 "cells": [
                     list(cell),
@@ -352,6 +386,25 @@ def render_puzzle(
             f'<circle class="thermometer-layer" '
             f'cx="{x}" cy="{y}" r="17" '
             'fill="#b8bec8"/>'
+        )
+
+    # Layer 5b: German Whispers lines
+    for line in whisper_lines:
+        cells = list(line.variables)
+
+        points = [center(cell) for cell in cells]
+
+        path = " ".join(
+            f"{x},{y}" for x, y in points
+        )
+
+        elements.append(
+            f'<polyline class="whispers-layer" '
+            f'points="{path}" fill="none" '
+            'stroke="#16a34a" stroke-width="12" '
+            'stroke-opacity="0.65" '
+            'stroke-linecap="round" '
+            'stroke-linejoin="round"/>'
         )
 
     # Layer 6: Killer cages
@@ -472,24 +525,23 @@ def render_puzzle(
     solution_json = json.dumps(solution)
     constraints_json = json.dumps(inspector_constraints)
     
-    variant_badges = []
+    active_variants = {
+        "thermometer": bool(thermometers),
+        "killer": bool(cages),
+        "diagonal": bool(diagonal_cells),
+        "anti-knight": has_anti_knight,
+        "anti-king": has_anti_king,
+        "nonconsecutive": has_nonconsecutive,
+        "whispers": bool(whisper_lines),
+    }
 
-    if has_anti_knight:
-        variant_badges.append(
-            '<span class="variant-badge">♞ Anti-Knight</span>'
-        )
-    
-    if has_anti_king:
-        variant_badges.append(
-            '<span class="variant-badge">''♚ Anti-King''</span>'
-        )
-        
-    if has_nonconsecutive:
-        variant_badges.append(
-            '<span class="variant-badge">'
-            '↔ Nonconsecutive'
-            '</span>'
-        )
+    variant_badges = [
+        '<span class="variant-badge">'
+        f'{variant_title(kind)}'
+        '</span>'
+        for kind in VARIANT_STYLES
+        if active_variants[kind]
+    ]
 
     variant_badges_html = "\n".join(variant_badges)
 
@@ -622,6 +674,7 @@ def render_puzzle(
 
     .diagonal-layer,
     .thermometer-layer,
+    .whispers-layer,
     .killer-layer {{
         pointer-events: none;
     }}
@@ -687,6 +740,12 @@ def render_puzzle(
                 <input type="checkbox" checked
                        onchange="toggleLayer('thermometer', this.checked)">
                 Thermometers
+            </label>
+
+            <label>
+                <input type="checkbox" checked
+                       onchange="toggleLayer('whispers', this.checked)">
+                German Whispers
             </label>
 
             <label>
