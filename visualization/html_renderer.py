@@ -553,7 +553,7 @@ def render_puzzle(
             elements.append(
                 f'<circle class="arrow-layer" '
                 f'cx="{x}" cy="{y}" r="21" '
-                'fill="white" fill-opacity="0.9" '
+                'fill="white" '
                 'stroke="#06b6d4" stroke-width="3"/>'
             )
 
@@ -573,7 +573,7 @@ def render_puzzle(
             elements.append(
                 f'<polyline class="arrow-layer" '
                 f'points="{pill}" fill="none" '
-                'stroke="white" stroke-opacity="0.9" '
+                'stroke="white" '
                 'stroke-width="39" '
                 'stroke-linecap="round" '
                 'stroke-linejoin="round"/>'
