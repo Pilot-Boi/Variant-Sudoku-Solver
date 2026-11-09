@@ -131,6 +131,8 @@ def render_puzzle(
 
     has_negative_kropki = False
     diagonal_cells = set()
+    has_main_diagonal = False
+    has_anti_diagonal = False
     anti_knight_neighbors = {
         (r, c): set()
         for r in range(9)
@@ -288,6 +290,7 @@ def render_puzzle(
             kind = "diagonal"
             label = f"{variant_title(kind)} — Main diagonal"
             diagonal_cells.update(cells)
+            has_main_diagonal = True
 
         elif (
             isinstance(constraint, AllDifferentConstraint)
@@ -296,6 +299,7 @@ def render_puzzle(
             kind = "diagonal"
             label = f"{variant_title(kind)} — Anti-diagonal"
             diagonal_cells.update(cells)
+            has_anti_diagonal = True
 
         elif isinstance(constraint, AllDifferentConstraint):
             kind = "all-different"
@@ -448,15 +452,21 @@ def render_puzzle(
         'fill="white"/>'
     )
 
-    # Layer 3: Diagonal highlighting
-    for r, c in sorted(diagonal_cells):
+    # Layer 3: Diagonal lines
+    if has_main_diagonal:
         elements.append(
-            f'<rect class="diagonal-layer" '
-            f'x="{c * cell_size}" '
-            f'y="{r * cell_size}" '
-            f'width="{cell_size}" '
-            f'height="{cell_size}" '
-            'fill="#dbeafe"/>'
+            f'<line class="diagonal-layer" '
+            f'x1="0" y1="0" '
+            f'x2="{grid_size}" y2="{grid_size}" '
+            'stroke="#06B6D4" stroke-width="2"/>'
+        )
+
+    if has_anti_diagonal:
+        elements.append(
+            f'<line class="diagonal-layer" '
+            f'x1="{grid_size}" y1="0" '
+            f'x2="0" y2="{grid_size}" '
+            'stroke="#06B6D4" stroke-width="2"/>'
         )
     
     # Layer 4: Constraint selection highlights
@@ -501,7 +511,7 @@ def render_puzzle(
 
         elements.append(
             f'<circle class="thermometer-layer" '
-            f'cx="{x}" cy="{y}" r="17" '
+            f'cx="{x}" cy="{y}" r="22" '
             'fill="#b8bec8"/>'
         )
 
@@ -518,8 +528,7 @@ def render_puzzle(
         elements.append(
             f'<polyline class="whispers-layer" '
             f'points="{path}" fill="none" '
-            'stroke="#16a34a" stroke-width="12" '
-            'stroke-opacity="0.65" '
+            'stroke="#67F067" stroke-width="8" '
             'stroke-linecap="round" '
             'stroke-linejoin="round"/>'
         )
@@ -537,8 +546,7 @@ def render_puzzle(
         elements.append(
             f'<polyline class="renban-layer" '
             f'points="{path}" fill="none" '
-            'stroke="#9333ea" stroke-width="12" '
-            'stroke-opacity="0.65" '
+            'stroke="#FE4AF4" stroke-width="8" '
             'stroke-linecap="round" '
             'stroke-linejoin="round"/>'
         )
@@ -582,7 +590,7 @@ def render_puzzle(
         elements.append(
             f'<polyline class="arrow-layer" '
             f'points="{path}" fill="none" '
-            'stroke="#06b6d4" stroke-width="3.5" '
+            'stroke="#AEBFD9" stroke-width="3.5" '
             'stroke-linecap="round" '
             'stroke-linejoin="round"/>'
         )
@@ -608,7 +616,7 @@ def render_puzzle(
             f'points="{wings[0][0]:.1f},{wings[0][1]:.1f} '
             f'{tip_x},{tip_y} '
             f'{wings[1][0]:.1f},{wings[1][1]:.1f}" '
-            'fill="none" stroke="#06b6d4" '
+            'fill="none" stroke="#AEBFD9" '
             'stroke-width="3.5" '
             'stroke-linecap="round" '
             'stroke-linejoin="round"/>'
@@ -620,9 +628,9 @@ def render_puzzle(
 
             elements.append(
                 f'<circle class="arrow-layer" '
-                f'cx="{x}" cy="{y}" r="21" '
+                f'cx="{x}" cy="{y}" r="22" '
                 'fill="white" '
-                'stroke="#06b6d4" stroke-width="3"/>'
+                'stroke="#AEBFD9" stroke-width="3.5"/>'
             )
 
         else:
@@ -633,7 +641,7 @@ def render_puzzle(
             elements.append(
                 f'<polyline class="arrow-layer" '
                 f'points="{pill}" fill="none" '
-                'stroke="#06b6d4" stroke-width="45" '
+                'stroke="#AEBFD9" stroke-width="45" '
                 'stroke-linecap="round" '
                 'stroke-linejoin="round"/>'
             )
