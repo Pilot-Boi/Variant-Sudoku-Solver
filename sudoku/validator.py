@@ -6,6 +6,7 @@ from sudoku.constraints import (
     GermanWhispersConstraint,
     RenbanConstraint,
     PalindromeConstraint,
+    ArrowConstraint,
 )
 
 def validate_solution(puzzle, solution):
@@ -189,5 +190,41 @@ def validate_solution(puzzle, solution):
                             f"R{a[0] + 1}C{a[1] + 1} and "
                             f"R{b[0] + 1}C{b[1] + 1}"
                         )
+
+        elif isinstance(constraint, ArrowConstraint):
+            circle = constraint.circle_cells
+            arrow = constraint.arrow_cells
+
+            values = [
+                solution.get(cell)
+                for cell in circle + arrow
+            ]
+
+            if any(value is None for value in values):
+                errors.append(
+                    f"Arrow is incomplete: circle {circle}, "
+                    f"shaft {arrow}"
+                )
+
+            else:
+                number = 0
+
+                for cell in circle:
+                    number = number * 10 + solution[cell]
+
+                total = sum(
+                    solution[cell] for cell in arrow
+                )
+
+                if number != total:
+                    circle_text = ", ".join(
+                        f"R{r + 1}C{c + 1}" for r, c in circle
+                    )
+
+                    errors.append(
+                        f"Arrow violation: circle "
+                        f"[{circle_text}] expects {number}, "
+                        f"but the shaft sums to {total}"
+                    )
         
     return errors

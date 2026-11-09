@@ -8,6 +8,7 @@ from sudoku.constraints import (
     GermanWhispersConstraint,
     RenbanConstraint,
     PalindromeConstraint,
+    ArrowConstraint,
     generate_king_pairs,
     generate_knight_pairs,
     generate_orthogonal_pairs
@@ -303,6 +304,75 @@ class SudokuPuzzle:
 
         self.add_constraint(
             PalindromeConstraint(cells)
+        )
+
+
+    def add_arrow(self, circle_cells, arrow_cells):
+        """
+        Add an Arrow constraint.
+
+        circle_cells: ordered (row, column) coordinates of
+        the circle. Multi-cell circles read as a base-10
+        number in this order.
+        arrow_cells: ordered coordinates of the shaft.
+
+        The shaft must form a connected path starting
+        adjacent to the circle. Adjacency includes
+        diagonals.
+        """
+        circle_cells = list(circle_cells)
+        arrow_cells = list(arrow_cells)
+
+        if not circle_cells:
+            raise ValueError(
+                "An arrow needs at least one circle cell."
+            )
+
+        if not arrow_cells:
+            raise ValueError(
+                "An arrow needs at least one shaft cell."
+            )
+
+        all_cells = circle_cells + arrow_cells
+
+        if len(set(all_cells)) != len(all_cells):
+            raise ValueError(
+                "Arrow circle and shaft cells must be distinct."
+            )
+
+        if any(cell not in self.domains for cell in all_cells):
+            raise ValueError(
+                "Arrow references invalid cells."
+            )
+
+        def adjacent(a, b):
+            return max(abs(a[0] - b[0]), abs(a[1] - b[1])) == 1
+
+        for a, b in zip(circle_cells, circle_cells[1:]):
+            if not adjacent(a, b):
+                raise ValueError(
+                    "Circle cells must be orthogonally "
+                    "or diagonally adjacent."
+                )
+
+        for a, b in zip(arrow_cells, arrow_cells[1:]):
+            if not adjacent(a, b):
+                raise ValueError(
+                    "Arrow shaft cells must be orthogonally "
+                    "or diagonally adjacent."
+                )
+
+        if not any(
+            adjacent(arrow_cells[0], circle_cell)
+            for circle_cell in circle_cells
+        ):
+            raise ValueError(
+                "The arrow shaft must start adjacent "
+                "to the circle."
+            )
+
+        self.add_constraint(
+            ArrowConstraint(circle_cells, arrow_cells)
         )
 
 

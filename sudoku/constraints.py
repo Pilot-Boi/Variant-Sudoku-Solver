@@ -1,5 +1,5 @@
 from csp.constraint import Constraint
-from itertools import combinations
+from itertools import combinations, product
 from functools import lru_cache
 
 class AllDifferentConstraint(Constraint):
@@ -1019,6 +1019,253 @@ class PalindromeConstraint(Constraint):
 
             if domains[b] != common:
                 domains[b] = set(common)
+                changed = True
+
+        return changed
+
+
+class ArrowConstraint(Constraint):
+    """
+    Arrow Sudoku constraint.
+
+    The digits on the arrow shaft must sum to the number
+    shown in the circle. Multi-cell circles are read as a
+    base-10 number in the supplied cell order.
+
+    Shaft digits may repeat unless other constraints
+    forbid it.
+    """
+
+    def __init__(self, circle_cells, arrow_cells):
+        circle_cells = tuple(circle_cells)
+        arrow_cells = tuple(arrow_cells)
+
+        if not circle_cells:
+            raise ValueError(
+                "An arrow needs at least one circle cell."
+            )
+
+        if not arrow_cells:
+            raise ValueError(
+                "An arrow needs at least one shaft cell."
+            )
+
+        all_cells = circle_cells + arrow_cells
+
+        if len(set(all_cells)) != len(all_cells):
+            raise ValueError(
+                "Arrow circle and shaft cells must be distinct."
+            )
+
+        super().__init__(all_cells)
+
+        self.circle_cells = circle_cells
+        self.arrow_cells = arrow_cells
+
+        # Cache domain-state-dependent propagation results.
+        self._support_cache = {}
+
+    def _circle_bounds(self, assignment):
+        """Smallest and largest possible circle numbers."""
+        low = 0
+        high = 0
+
+        for cell in self.circle_cells:
+            if cell in assignment:
+                digit_low = digit_high = assignment[cell]
+            else:
+                digit_low, digit_high = 1, 9
+
+            low = low * 10 + digit_low
+            high = high * 10 + digit_high
+
+        return low, high
+
+    def _arrow_bounds(self, assignment):
+        """Smallest and largest possible shaft sums."""
+        low = 0
+        high = 0
+
+        for cell in self.arrow_cells:
+            if cell in assignment:
+                low += assignment[cell]
+                high += assignment[cell]
+            else:
+                low += 1
+                high += 9
+
+        return low, high
+
+    def is_satisfied(self, assignment):
+        circle_low, circle_high = self._circle_bounds(assignment)
+        arrow_low, arrow_high = self._arrow_bounds(assignment)
+
+        # The possible ranges must overlap. For complete
+        # assignments both ranges collapse to one value,
+        # making this an exact equality test.
+        return (
+            circle_low <= arrow_high
+            and circle_high >= arrow_low
+        )
+
+    def _find_supports(self, domains):
+        """
+        Compute supported values with forward/backward
+        dynamic programming over shaft sums.
+
+        Returns None when no valid assignment exists.
+        """
+        circle = self.circle_cells
+        arrow = self.arrow_cells
+        n = len(arrow)
+
+        # Positional digits are independent, so the number
+        # bounds come from per-cell domain extremes.
+        min_circle = 0
+        max_circle = 0
+
+        for cell in circle:
+            min_circle = min_circle * 10 + min(domains[cell])
+            max_circle = max_circle * 10 + max(domains[cell])
+
+        min_sum = sum(min(domains[cell]) for cell in arrow)
+        max_sum = sum(max(domains[cell]) for cell in arrow)
+
+        if min_circle > max_sum or max_circle < min_sum:
+            return None
+
+        max_target = min(max_circle, max_sum)
+
+        # Minimum remaining sum after each shaft position,
+        # used to prune unreachable partial sums.
+        suffix_min = [0] * (n + 1)
+
+        for i in range(n - 1, -1, -1):
+            suffix_min[i] = suffix_min[i + 1] + min(domains[arrow[i]])
+
+        # Forward pass: partial sums of arrow[:i].
+        forward = [{0}]
+
+        for i, cell in enumerate(arrow):
+            bound = max_target - suffix_min[i + 1]
+            step = set()
+
+            for partial in forward[-1]:
+                for value in domains[cell]:
+                    total = partial + value
+
+                    if total <= bound:
+                        step.add(total)
+
+            if not step:
+                return None
+
+            forward.append(step)
+
+        # Backward pass: sums achievable by arrow[i:].
+        backward = [set() for _ in range(n)] + [{0}]
+
+        for i in range(n - 1, -1, -1):
+            step = set()
+
+            for partial in backward[i + 1]:
+                for value in domains[arrow[i]]:
+                    total = partial + value
+
+                    if total <= max_target:
+                        step.add(total)
+
+            backward[i] = step
+
+        reachable = forward[n]
+
+        # Match circle numbers against reachable sums and
+        # collect circle supports in one pass.
+        targets = set()
+        supports = {cell: set() for cell in self.variables}
+
+        for combo in product(*(sorted(domains[cell]) for cell in circle)):
+            number = 0
+
+            for digit in combo:
+                number = number * 10 + digit
+
+            if number in reachable:
+                targets.add(number)
+
+                for cell, digit in zip(circle, combo):
+                    supports[cell].add(digit)
+
+        if not targets:
+            return None
+
+        # Shaft supports: value v in cell i is supported
+        # when prefix + v + suffix hits a target.
+        for i, cell in enumerate(arrow):
+            needed = {
+                target - suffix
+                for target in targets
+                for suffix in backward[i + 1]
+            }
+
+            for value in domains[cell]:
+                if any(
+                    prefix + value in needed
+                    for prefix in forward[i]
+                ):
+                    supports[cell].add(value)
+
+            if not supports[cell]:
+                return None
+
+        return supports
+
+    def propagate(self, domains):
+        key = tuple(
+            frozenset(domains[var])
+            for var in self.variables
+        )
+
+        if key in self._support_cache:
+            cached = self._support_cache[key]
+
+            if cached is None:
+                raise ValueError(
+                    "Arrow has no valid assignments"
+                )
+
+            supports = {
+                var: set(values)
+                for var, values in zip(self.variables, cached)
+            }
+
+        else:
+            supports = self._find_supports(domains)
+
+            # Detect contradictions before mutating domains.
+            if supports is None:
+                self._support_cache[key] = None
+                raise ValueError(
+                    "Arrow has no valid assignments"
+                )
+
+            self._support_cache[key] = tuple(
+                frozenset(supports[var])
+                for var in self.variables
+            )
+
+        changed = False
+
+        for var in self.variables:
+            retained = domains[var] & supports[var]
+
+            if not retained:
+                raise ValueError(
+                    "Arrow has no valid assignments"
+                )
+
+            if retained != domains[var]:
+                domains[var] = retained
                 changed = True
 
         return changed

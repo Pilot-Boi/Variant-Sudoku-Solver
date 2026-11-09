@@ -1,6 +1,7 @@
 from html import escape
 from pathlib import Path
 import json
+import math
 import webbrowser
 
 from sudoku.constraints import (
@@ -11,7 +12,8 @@ from sudoku.constraints import (
     NonConsecutiveConstraint,
     GermanWhispersConstraint,
     RenbanConstraint,
-    PalindromeConstraint
+    PalindromeConstraint,
+    ArrowConstraint
 )
 
 
@@ -28,6 +30,7 @@ VARIANT_STYLES = {
     "whispers": ("≋", "German Whispers"),
     "renban": ("≡", "Renban"),
     "palindrome": ("⇄", "Palindrome"),
+    "arrow": ("➤", "Arrow"),
 }
 
 
@@ -112,6 +115,7 @@ def render_puzzle(
     whisper_lines = []
     renban_lines = []
     palindrome_lines = []
+    arrows = []
     diagonal_cells = set()
     anti_knight_neighbors = {
         (r, c): set()
@@ -139,6 +143,7 @@ def render_puzzle(
     for constraint in puzzle.constraints:
         cells = list(constraint.variables)
         cell_set = set(cells)
+        details = None
         
         if isinstance(constraint, NotEqualConstraint):
             a, b = constraint.variables
@@ -214,6 +219,26 @@ def render_puzzle(
             )
             palindrome_lines.append(constraint)
 
+        elif isinstance(constraint, ArrowConstraint):
+            kind = "arrow"
+            label = (
+                f"{variant_title(kind)} — circle "
+                f"{cell_label(constraint.circle_cells[0])}"
+            )
+            details = (
+                "Circle: "
+                + ", ".join(
+                    cell_label(c)
+                    for c in constraint.circle_cells
+                )
+                + " — Shaft: "
+                + ", ".join(
+                    cell_label(c)
+                    for c in constraint.arrow_cells
+                )
+            )
+            arrows.append(constraint)
+
         elif (
             isinstance(constraint, AllDifferentConstraint)
             and cell_set == main_diagonal
@@ -248,7 +273,7 @@ def render_puzzle(
             "cells": [
                 [r, c] for r, c in cells
             ],
-            "details": (
+            "details": details or (
                 f"Cells: {', '.join(cell_label(c) for c in cells)}"
             )
         })
@@ -469,6 +494,91 @@ def render_puzzle(
             'stroke-linejoin="round"/>'
         )
 
+    # Layer 5e: Arrows
+    for arrow_constraint in arrows:
+        circle_cells = list(arrow_constraint.circle_cells)
+        shaft_cells = list(arrow_constraint.arrow_cells)
+
+        circle_points = [center(cell) for cell in circle_cells]
+        shaft_points = [center(cell) for cell in shaft_cells]
+
+        # Shaft: starts at the nearest circle cell center so
+        # the circle visually caps the line.
+        start = circle_points[-1]
+        line_points = [start] + shaft_points
+
+        path = " ".join(
+            f"{x},{y}" for x, y in line_points
+        )
+
+        elements.append(
+            f'<polyline class="arrow-layer" '
+            f'points="{path}" fill="none" '
+            'stroke="#06b6d4" stroke-width="3.5" '
+            'stroke-linecap="round" '
+            'stroke-linejoin="round"/>'
+        )
+
+        # Arrowhead at the final shaft cell.
+        tip_x, tip_y = line_points[-1]
+        prev_x, prev_y = line_points[-2]
+
+        angle = math.atan2(tip_y - prev_y, tip_x - prev_x)
+        head_length = 14
+        spread = math.radians(150)
+
+        wings = [
+            (
+                tip_x + head_length * math.cos(angle + sign * spread),
+                tip_y + head_length * math.sin(angle + sign * spread),
+            )
+            for sign in (1, -1)
+        ]
+
+        elements.append(
+            f'<polyline class="arrow-layer" '
+            f'points="{wings[0][0]:.1f},{wings[0][1]:.1f} '
+            f'{tip_x},{tip_y} '
+            f'{wings[1][0]:.1f},{wings[1][1]:.1f}" '
+            'fill="none" stroke="#06b6d4" '
+            'stroke-width="3.5" '
+            'stroke-linecap="round" '
+            'stroke-linejoin="round"/>'
+        )
+
+        # Circle: a ring for one cell, a pill for several.
+        if len(circle_points) == 1:
+            x, y = circle_points[0]
+
+            elements.append(
+                f'<circle class="arrow-layer" '
+                f'cx="{x}" cy="{y}" r="21" '
+                'fill="white" fill-opacity="0.9" '
+                'stroke="#06b6d4" stroke-width="3"/>'
+            )
+
+        else:
+            pill = " ".join(
+                f"{x},{y}" for x, y in circle_points
+            )
+
+            elements.append(
+                f'<polyline class="arrow-layer" '
+                f'points="{pill}" fill="none" '
+                'stroke="#06b6d4" stroke-width="45" '
+                'stroke-linecap="round" '
+                'stroke-linejoin="round"/>'
+            )
+
+            elements.append(
+                f'<polyline class="arrow-layer" '
+                f'points="{pill}" fill="none" '
+                'stroke="white" stroke-opacity="0.9" '
+                'stroke-width="39" '
+                'stroke-linecap="round" '
+                'stroke-linejoin="round"/>'
+            )
+
     # Layer 6: Killer cages
     inset = 5
 
@@ -597,6 +707,7 @@ def render_puzzle(
         "whispers": bool(whisper_lines),
         "renban": bool(renban_lines),
         "palindrome": bool(palindrome_lines),
+        "arrow": bool(arrows),
     }
 
     variant_badges = [
@@ -741,6 +852,7 @@ def render_puzzle(
     .whispers-layer,
     .renban-layer,
     .palindrome-layer,
+    .arrow-layer,
     .killer-layer {{
         pointer-events: none;
     }}
@@ -824,6 +936,12 @@ def render_puzzle(
                 <input type="checkbox" checked
                        onchange="toggleLayer('palindrome', this.checked)">
                 Palindrome
+            </label>
+
+            <label>
+                <input type="checkbox" checked
+                       onchange="toggleLayer('arrow', this.checked)">
+                Arrows
             </label>
 
             <label>
