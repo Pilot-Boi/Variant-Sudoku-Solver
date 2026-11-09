@@ -9,6 +9,8 @@ from sudoku.constraints import (
     RenbanConstraint,
     PalindromeConstraint,
     ArrowConstraint,
+    KropkiConstraint,
+    NegativeKropkiConstraint,
     generate_king_pairs,
     generate_knight_pairs,
     generate_orthogonal_pairs
@@ -43,6 +45,12 @@ class SudokuPuzzle:
         }
         
         self.constraints = []
+
+        # Kropki bookkeeping: dot type per unordered pair,
+        # and pairs covered by negative constraints.
+        self._kropki_pairs = {}
+        self._negative_kropki_pairs = set()
+
         self.add_standard_constraints()
         
     
@@ -374,6 +382,95 @@ class SudokuPuzzle:
         self.add_constraint(
             ArrowConstraint(circle_cells, arrow_cells)
         )
+
+
+    def add_kropki_dot(self, cell_a, cell_b, dot_type):
+        """
+        Add a Kropki dot between two orthogonally
+        adjacent cells.
+
+        dot_type: "white" (digits differ by 1) or
+        "black" (digits in a 1:2 ratio).
+
+        Each unordered cell pair may carry only one dot.
+        Dots must be added before calling
+        add_negative_kropki_constraints(); adding a dot
+        to a pair that already has a negative constraint
+        raises ValueError.
+        """
+        if dot_type not in KropkiConstraint.DOT_TYPES:
+            raise ValueError(
+                f"Invalid Kropki dot type: {dot_type!r}"
+            )
+
+        if cell_a == cell_b:
+            raise ValueError(
+                "A Kropki dot needs two distinct cells."
+            )
+
+        if (
+            cell_a not in self.domains
+            or cell_b not in self.domains
+        ):
+            raise ValueError(
+                "Kropki dot references invalid cells."
+            )
+
+        dr = abs(cell_a[0] - cell_b[0])
+        dc = abs(cell_a[1] - cell_b[1])
+
+        if dr + dc != 1:
+            raise ValueError(
+                "Kropki dots connect orthogonally "
+                "adjacent cells only."
+            )
+
+        pair = tuple(sorted((cell_a, cell_b)))
+
+        if pair in self._kropki_pairs:
+            raise ValueError(
+                f"A Kropki dot is already defined for "
+                f"{pair[0]} and {pair[1]}."
+            )
+
+        if pair in self._negative_kropki_pairs:
+            raise ValueError(
+                f"Negative Kropki constraints already "
+                f"cover {pair[0]} and {pair[1]}. Add all "
+                f"dots before calling "
+                f"add_negative_kropki_constraints()."
+            )
+
+        self._kropki_pairs[pair] = dot_type
+
+        self.add_constraint(
+            KropkiConstraint(cell_a, cell_b, dot_type)
+        )
+
+    def add_negative_kropki_constraints(self):
+        """
+        Add negative Kropki constraints to every
+        orthogonally adjacent pair without a dot.
+
+        Undotted pairs must not contain consecutive
+        digits or digits in a 1:2 ratio. Diagonal
+        neighbors are unaffected. Repeated calls are
+        idempotent.
+        """
+        for a, b in generate_orthogonal_pairs():
+            pair = tuple(sorted((a, b)))
+
+            if pair in self._kropki_pairs:
+                continue
+
+            if pair in self._negative_kropki_pairs:
+                continue
+
+            self._negative_kropki_pairs.add(pair)
+
+            self.add_constraint(
+                NegativeKropkiConstraint(a, b)
+            )
 
 
     def add_constraint(self, constraint):

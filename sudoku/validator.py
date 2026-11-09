@@ -7,6 +7,8 @@ from sudoku.constraints import (
     RenbanConstraint,
     PalindromeConstraint,
     ArrowConstraint,
+    KropkiConstraint,
+    NegativeKropkiConstraint,
 )
 
 def validate_solution(puzzle, solution):
@@ -226,5 +228,66 @@ def validate_solution(puzzle, solution):
                         f"[{circle_text}] expects {number}, "
                         f"but the shaft sums to {total}"
                     )
+
+        elif isinstance(constraint, KropkiConstraint):
+            a, b = constraint.variables
+
+            value_a = solution.get(a)
+            value_b = solution.get(b)
+
+            label_a = f"R{a[0] + 1}C{a[1] + 1}"
+            label_b = f"R{b[0] + 1}C{b[1] + 1}"
+
+            if value_a is None or value_b is None:
+                errors.append(
+                    f"Kropki dot is incomplete: "
+                    f"{label_a} and {label_b}"
+                )
+
+            elif constraint.dot_type == "white":
+                if abs(value_a - value_b) != 1:
+                    errors.append(
+                        f"White Kropki violation: {label_a} "
+                        f"and {label_b} must differ by "
+                        f"exactly 1"
+                    )
+
+            else:
+                if (
+                    value_a != 2 * value_b
+                    and value_b != 2 * value_a
+                ):
+                    errors.append(
+                        f"Black Kropki violation: {label_a} "
+                        f"and {label_b} must be in a 1:2 "
+                        f"ratio"
+                    )
+
+        elif isinstance(constraint, NegativeKropkiConstraint):
+            a, b = constraint.variables
+
+            value_a = solution.get(a)
+            value_b = solution.get(b)
+
+            label_a = f"R{a[0] + 1}C{a[1] + 1}"
+            label_b = f"R{b[0] + 1}C{b[1] + 1}"
+
+            if value_a is None or value_b is None:
+                errors.append(
+                    f"Negative Kropki pair is incomplete: "
+                    f"{label_a} and {label_b}"
+                )
+
+            elif (
+                abs(value_a - value_b) == 1
+                or value_a == 2 * value_b
+                or value_b == 2 * value_a
+            ):
+                errors.append(
+                    f"Negative Kropki violation: the "
+                    f"undotted pair {label_a} and {label_b} "
+                    f"must not be consecutive or in a 1:2 "
+                    f"ratio"
+                )
         
     return errors

@@ -13,7 +13,9 @@ from sudoku.constraints import (
     GermanWhispersConstraint,
     RenbanConstraint,
     PalindromeConstraint,
-    ArrowConstraint
+    ArrowConstraint,
+    KropkiConstraint,
+    NegativeKropkiConstraint
 )
 
 
@@ -31,6 +33,9 @@ VARIANT_STYLES = {
     "renban": ("≡", "Renban"),
     "palindrome": ("⇄", "Palindrome"),
     "arrow": ("➤", "Arrow"),
+    "kropki-white": ("○", "Kropki White"),
+    "kropki-black": ("●", "Kropki Black"),
+    "kropki-negative": ("⊘", "Kropki Negative"),
 }
 
 
@@ -116,6 +121,15 @@ def render_puzzle(
     renban_lines = []
     palindrome_lines = []
     arrows = []
+    kropki_dots = []
+
+    negative_kropki_neighbors = {
+        (r, c): set()
+        for r in range(9)
+        for c in range(9)
+    }
+
+    has_negative_kropki = False
     diagonal_cells = set()
     anti_knight_neighbors = {
         (r, c): set()
@@ -172,6 +186,16 @@ def render_puzzle(
 
             nonconsecutive_neighbors[a].add(b)
             nonconsecutive_neighbors[b].add(a)
+
+            continue
+
+        if isinstance(constraint, NegativeKropkiConstraint):
+            a, b = constraint.variables
+
+            has_negative_kropki = True
+
+            negative_kropki_neighbors[a].add(b)
+            negative_kropki_neighbors[b].add(a)
 
             continue
 
@@ -238,6 +262,24 @@ def render_puzzle(
                 )
             )
             arrows.append(constraint)
+
+        elif isinstance(constraint, KropkiConstraint):
+            kind = f"kropki-{constraint.dot_type}"
+
+            a, b = constraint.variables
+
+            label = (
+                f"{variant_title(kind)} — "
+                f"{cell_label(a)} ↔ {cell_label(b)}"
+            )
+
+            details = (
+                "Digits must differ by exactly 1."
+                if constraint.dot_type == "white"
+                else "Digits must be in a 1:2 ratio."
+            )
+
+            kropki_dots.append(constraint)
 
         elif (
             isinstance(constraint, AllDifferentConstraint)
@@ -373,6 +415,32 @@ def render_puzzle(
                     )
                 ),
             })  
+
+    if has_negative_kropki:
+        for cell, neighbors in negative_kropki_neighbors.items():
+            if not neighbors:
+                continue
+
+            ordered_neighbors = sorted(neighbors)
+
+            inspector_constraints.append({
+                "id": len(inspector_constraints),
+                "kind": "kropki-negative",
+                "label": variant_title("kropki-negative"),
+                "owner": list(cell),
+                "cells": [
+                    list(cell),
+                    *[list(n) for n in ordered_neighbors],
+                ],
+                "details": (
+                    "Undotted neighbors must not be "
+                    "consecutive or in a 1:2 ratio: "
+                    + ", ".join(
+                        cell_label(n)
+                        for n in ordered_neighbors
+                    )
+                ),
+            })
             
     # Layer 2: Background
     elements.append(
@@ -650,6 +718,31 @@ def render_puzzle(
             f'x2="{grid_size}" y2="{pos}" '
             f'stroke="#111827" stroke-width="{width}"/>'
         )
+
+    # Layer 7b: Kropki dots (above grid lines,
+    # below digits and selection overlays)
+    for dot in kropki_dots:
+        a, b = dot.variables
+
+        ax, ay = center(a)
+        bx, by = center(b)
+
+        x = (ax + bx) / 2
+        y = (ay + by) / 2
+
+        if dot.dot_type == "white":
+            fill = "white"
+            stroke = "#334155"
+        else:
+            fill = "#111827"
+            stroke = "white"
+
+        elements.append(
+            f'<circle class="kropki-layer" '
+            f'cx="{x}" cy="{y}" r="7" '
+            f'fill="{fill}" stroke="{stroke}" '
+            'stroke-width="1.5"/>'
+        )
     
     # Layer 8: Digits
     for r in range(9):
@@ -708,6 +801,13 @@ def render_puzzle(
         "renban": bool(renban_lines),
         "palindrome": bool(palindrome_lines),
         "arrow": bool(arrows),
+        "kropki-white": any(
+            dot.dot_type == "white" for dot in kropki_dots
+        ),
+        "kropki-black": any(
+            dot.dot_type == "black" for dot in kropki_dots
+        ),
+        "kropki-negative": has_negative_kropki,
     }
 
     variant_badges = [
@@ -853,6 +953,7 @@ def render_puzzle(
     .renban-layer,
     .palindrome-layer,
     .arrow-layer,
+    .kropki-layer,
     .killer-layer {{
         pointer-events: none;
     }}
@@ -942,6 +1043,12 @@ def render_puzzle(
                 <input type="checkbox" checked
                        onchange="toggleLayer('arrow', this.checked)">
                 Arrows
+            </label>
+
+            <label>
+                <input type="checkbox" checked
+                       onchange="toggleLayer('kropki', this.checked)">
+                Kropki dots
             </label>
 
             <label>
@@ -1071,7 +1178,8 @@ function selectCell(r, c) {{
             if (
                 constraint.kind === "anti-knight" ||
                 constraint.kind === "anti-king" ||
-                constraint.kind === "nonconsecutive"
+                constraint.kind === "nonconsecutive" ||
+                constraint.kind === "kropki-negative"
             ) {{
                 return (
                     constraint.owner[0] === r &&

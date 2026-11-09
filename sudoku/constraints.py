@@ -1271,6 +1271,154 @@ class ArrowConstraint(Constraint):
         return changed
 
 
+class KropkiConstraint(Constraint):
+    """
+    Kropki dot between two orthogonally adjacent cells.
+
+    White dot: the digits differ by exactly 1.
+    Black dot: one digit is exactly twice the other.
+
+    Note that the pair (1, 2) satisfies both dot types.
+    """
+
+    DOT_TYPES = ("white", "black")
+
+    def __init__(self, cell_a, cell_b, dot_type):
+        if cell_a == cell_b:
+            raise ValueError(
+                "KropkiConstraint requires two distinct cells"
+            )
+
+        if dot_type not in self.DOT_TYPES:
+            raise ValueError(
+                f"Invalid Kropki dot type: {dot_type!r}"
+            )
+
+        super().__init__((cell_a, cell_b))
+
+        self.dot_type = dot_type
+
+    def _matches(self, a, b):
+        if self.dot_type == "white":
+            return abs(a - b) == 1
+
+        return a == 2 * b or b == 2 * a
+
+    def is_satisfied(self, assignment):
+        a, b = self.variables
+
+        if a not in assignment or b not in assignment:
+            return True
+
+        return self._matches(assignment[a], assignment[b])
+
+    def propagate(self, domains):
+        a, b = self.variables
+
+        domain_a = domains[a]
+        domain_b = domains[b]
+
+        if not domain_a or not domain_b:
+            raise ValueError("Empty domain")
+
+        supported_a = {
+            x for x in domain_a
+            if any(self._matches(x, y) for y in domain_b)
+        }
+
+        supported_b = {
+            y for y in domain_b
+            if any(self._matches(x, y) for x in domain_a)
+        }
+
+        if not supported_a or not supported_b:
+            raise ValueError(
+                "KropkiConstraint contradiction"
+            )
+
+        changed = (
+            supported_a != domain_a
+            or supported_b != domain_b
+        )
+
+        if changed:
+            domains[a] = supported_a
+            domains[b] = supported_b
+
+        return changed
+
+
+class NegativeKropkiConstraint(Constraint):
+    """
+    Negative Kropki constraint for an orthogonally
+    adjacent cell pair without a dot.
+
+    Neither Kropki relationship may hold: the digits
+    must not be consecutive and must not be in a
+    1:2 ratio.
+    """
+
+    def __init__(self, cell_a, cell_b):
+        if cell_a == cell_b:
+            raise ValueError(
+                "NegativeKropkiConstraint requires "
+                "two distinct cells"
+            )
+
+        super().__init__((cell_a, cell_b))
+
+    @staticmethod
+    def _matches(a, b):
+        return (
+            abs(a - b) != 1
+            and a != 2 * b
+            and b != 2 * a
+        )
+
+    def is_satisfied(self, assignment):
+        a, b = self.variables
+
+        if a not in assignment or b not in assignment:
+            return True
+
+        return self._matches(assignment[a], assignment[b])
+
+    def propagate(self, domains):
+        a, b = self.variables
+
+        domain_a = domains[a]
+        domain_b = domains[b]
+
+        if not domain_a or not domain_b:
+            raise ValueError("Empty domain")
+
+        supported_a = {
+            x for x in domain_a
+            if any(self._matches(x, y) for y in domain_b)
+        }
+
+        supported_b = {
+            y for y in domain_b
+            if any(self._matches(x, y) for x in domain_a)
+        }
+
+        if not supported_a or not supported_b:
+            raise ValueError(
+                "NegativeKropkiConstraint contradiction"
+            )
+
+        changed = (
+            supported_a != domain_a
+            or supported_b != domain_b
+        )
+
+        if changed:
+            domains[a] = supported_a
+            domains[b] = supported_b
+
+        return changed
+
+
 def generate_knight_pairs():
     """
     Generate every unique pair of cells connected
