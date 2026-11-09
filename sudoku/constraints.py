@@ -1419,6 +1419,525 @@ class NegativeKropkiConstraint(Constraint):
         return changed
 
 
+def _propagate_binary_relation(
+    domains, cell_a, cell_b, relation, name
+):
+    """
+    Enforce bidirectional arc consistency for a binary
+    relation between two cells.
+
+    Removes values with no supporting partner in the
+    other cell's domain. Raises ValueError when either
+    cell loses every candidate.
+    """
+    domain_a = domains[cell_a]
+    domain_b = domains[cell_b]
+
+    if not domain_a or not domain_b:
+        raise ValueError("Empty domain")
+
+    supported_a = {
+        x for x in domain_a
+        if any(relation(x, y) for y in domain_b)
+    }
+
+    supported_b = {
+        y for y in domain_b
+        if any(relation(x, y) for x in domain_a)
+    }
+
+    if not supported_a or not supported_b:
+        raise ValueError(f"{name} contradiction")
+
+    changed = (
+        supported_a != domain_a
+        or supported_b != domain_b
+    )
+
+    if changed:
+        domains[cell_a] = supported_a
+        domains[cell_b] = supported_b
+
+    return changed
+
+
+class InequalityConstraint(Constraint):
+    """
+    Inequality between two cells.
+
+    With operator "<", cell_a's digit must be strictly
+    less than cell_b's digit; with ">", strictly
+    greater. The cells need not be adjacent.
+    """
+
+    OPERATORS = ("<", ">")
+
+    def __init__(self, cell_a, cell_b, operator):
+        if cell_a == cell_b:
+            raise ValueError(
+                "InequalityConstraint requires two distinct cells"
+            )
+
+        if operator not in self.OPERATORS:
+            raise ValueError(
+                f"Invalid inequality operator: {operator!r}"
+            )
+
+        super().__init__((cell_a, cell_b))
+
+        self.operator = operator
+
+    def _matches(self, a, b):
+        if self.operator == "<":
+            return a < b
+
+        return a > b
+
+    def is_satisfied(self, assignment):
+        a, b = self.variables
+
+        if a not in assignment or b not in assignment:
+            return True
+
+        return self._matches(assignment[a], assignment[b])
+
+    def propagate(self, domains):
+        a, b = self.variables
+
+        return _propagate_binary_relation(
+            domains, a, b, self._matches,
+            "InequalityConstraint",
+        )
+
+
+class XVConstraint(Constraint):
+    """
+    XV marker between two orthogonally adjacent cells.
+
+    V: the digits sum to 5.
+    X: the digits sum to 10.
+    """
+
+    MARKERS = {"V": 5, "X": 10}
+
+    def __init__(self, cell_a, cell_b, marker):
+        if cell_a == cell_b:
+            raise ValueError(
+                "XVConstraint requires two distinct cells"
+            )
+
+        if marker not in self.MARKERS:
+            raise ValueError(
+                f"Invalid XV marker: {marker!r}"
+            )
+
+        super().__init__((cell_a, cell_b))
+
+        self.marker = marker
+        self.target_sum = self.MARKERS[marker]
+
+    def _matches(self, a, b):
+        return a + b == self.target_sum
+
+    def is_satisfied(self, assignment):
+        a, b = self.variables
+
+        if a not in assignment or b not in assignment:
+            return True
+
+        return self._matches(assignment[a], assignment[b])
+
+    def propagate(self, domains):
+        a, b = self.variables
+
+        return _propagate_binary_relation(
+            domains, a, b, self._matches, "XVConstraint",
+        )
+
+
+class NegativeXVConstraint(Constraint):
+    """
+    Negative XV constraint for an unmarked orthogonally
+    adjacent pair: the digits must sum to neither 5
+    nor 10.
+    """
+
+    def __init__(self, cell_a, cell_b):
+        if cell_a == cell_b:
+            raise ValueError(
+                "NegativeXVConstraint requires two distinct cells"
+            )
+
+        super().__init__((cell_a, cell_b))
+
+    @staticmethod
+    def _matches(a, b):
+        return a + b != 5 and a + b != 10
+
+    def is_satisfied(self, assignment):
+        a, b = self.variables
+
+        if a not in assignment or b not in assignment:
+            return True
+
+        return self._matches(assignment[a], assignment[b])
+
+    def propagate(self, domains):
+        a, b = self.variables
+
+        return _propagate_binary_relation(
+            domains, a, b, self._matches,
+            "NegativeXVConstraint",
+        )
+
+
+class ParityConstraint(Constraint):
+    """
+    Unary parity constraint for one cell.
+
+    Odd cells contain 1, 3, 5, 7, or 9.
+    Even cells contain 2, 4, 6, or 8.
+    """
+
+    PARITIES = {
+        "odd": frozenset({1, 3, 5, 7, 9}),
+        "even": frozenset({2, 4, 6, 8}),
+    }
+
+    def __init__(self, cell, parity):
+        if parity not in self.PARITIES:
+            raise ValueError(
+                f"Invalid parity: {parity!r}"
+            )
+
+        super().__init__((cell,))
+
+        self.parity = parity
+        self.allowed = set(self.PARITIES[parity])
+
+    def is_satisfied(self, assignment):
+        cell = self.variables[0]
+
+        if cell not in assignment:
+            return True
+
+        return assignment[cell] in self.allowed
+
+    def propagate(self, domains):
+        cell = self.variables[0]
+
+        allowed = domains[cell] & self.allowed
+
+        if not allowed:
+            raise ValueError(
+                "ParityConstraint contradiction"
+            )
+
+        if allowed != domains[cell]:
+            domains[cell] = allowed
+            return True
+
+        return False
+
+
+class BetweenLineConstraint(Constraint):
+    """
+    Between Line.
+
+    The first and last cells are endpoints; every
+    interior digit must lie strictly between the two
+    endpoint values, in either endpoint order.
+
+    Interior digits may repeat unless other constraints
+    forbid it.
+    """
+
+    def __init__(self, cells):
+        cells = tuple(cells)
+
+        if len(cells) < 3:
+            raise ValueError(
+                "A Between Line needs at least three cells."
+            )
+
+        if len(set(cells)) != len(cells):
+            raise ValueError(
+                "A Between Line cannot repeat a cell."
+            )
+
+        super().__init__(cells)
+
+        self.endpoints = (cells[0], cells[-1])
+        self.interior = cells[1:-1]
+
+    def is_satisfied(self, assignment):
+        end_a, end_b = self.endpoints
+
+        interior_values = [
+            assignment[cell]
+            for cell in self.interior
+            if cell in assignment
+        ]
+
+        options_a = (
+            (assignment[end_a],)
+            if end_a in assignment
+            else range(1, 10)
+        )
+
+        options_b = (
+            (assignment[end_b],)
+            if end_b in assignment
+            else range(1, 10)
+        )
+
+        # Some endpoint pairing must leave every assigned
+        # interior digit strictly between the endpoints.
+        for value_a in options_a:
+            for value_b in options_b:
+                low, high = sorted((value_a, value_b))
+
+                if all(
+                    low < value < high
+                    for value in interior_values
+                ):
+                    return True
+
+        return False
+
+    def propagate(self, domains):
+        end_a, end_b = self.endpoints
+
+        supports = {cell: set() for cell in self.variables}
+
+        for value_a in domains[end_a]:
+            for value_b in domains[end_b]:
+                low, high = sorted((value_a, value_b))
+
+                if high - low < 2:
+                    continue
+
+                # Every interior cell needs a candidate
+                # strictly inside the interval.
+                if any(
+                    not any(
+                        low < value < high
+                        for value in domains[cell]
+                    )
+                    for cell in self.interior
+                ):
+                    continue
+
+                supports[end_a].add(value_a)
+                supports[end_b].add(value_b)
+
+                for cell in self.interior:
+                    supports[cell].update(
+                        value
+                        for value in domains[cell]
+                        if low < value < high
+                    )
+
+        # Detect contradictions before mutating domains.
+        if any(not supports[cell] for cell in self.variables):
+            raise ValueError(
+                "BetweenLineConstraint contradiction"
+            )
+
+        changed = False
+
+        for cell in self.variables:
+            if supports[cell] != domains[cell]:
+                domains[cell] = supports[cell]
+                changed = True
+
+        return changed
+
+
+class LittleKillerConstraint(Constraint):
+    """
+    Little Killer diagonal.
+
+    The digits along the diagonal sum to the clue.
+    Digits may repeat when standard Sudoku allows it;
+    no all-different rule is imposed.
+    """
+
+    def __init__(self, cells, target_sum):
+        cells = tuple(cells)
+
+        if not cells:
+            raise ValueError(
+                "A Little Killer clue needs at least one cell."
+            )
+
+        if len(set(cells)) != len(cells):
+            raise ValueError(
+                "A Little Killer diagonal cannot repeat a cell."
+            )
+
+        if not isinstance(target_sum, int):
+            raise ValueError(
+                "Little Killer target sum must be an integer"
+            )
+
+        n = len(cells)
+
+        if not n <= target_sum <= 9 * n:
+            raise ValueError(
+                "Little Killer target sum is impossible "
+                "for the diagonal length"
+            )
+
+        super().__init__(cells)
+
+        self.target_sum = target_sum
+
+        # Cache domain-state-dependent propagation results.
+        self._support_cache = {}
+
+    def is_satisfied(self, assignment):
+        low = 0
+        high = 0
+
+        for cell in self.variables:
+            if cell in assignment:
+                low += assignment[cell]
+                high += assignment[cell]
+            else:
+                low += 1
+                high += 9
+
+        return low <= self.target_sum <= high
+
+    def _find_supports(self, domains):
+        """
+        Forward/backward sum DP, as in ArrowConstraint
+        but with one fixed target.
+
+        Returns None when no valid assignment exists.
+        """
+        cells = self.variables
+        n = len(cells)
+        target = self.target_sum
+
+        suffix_min = [0] * (n + 1)
+        suffix_max = [0] * (n + 1)
+
+        for i in range(n - 1, -1, -1):
+            domain = domains[cells[i]]
+            suffix_min[i] = suffix_min[i + 1] + min(domain)
+            suffix_max[i] = suffix_max[i + 1] + max(domain)
+
+        if not suffix_min[0] <= target <= suffix_max[0]:
+            return None
+
+        # Forward pass, keeping only completable sums.
+        forward = [{0}]
+
+        for i, cell in enumerate(cells):
+            step = {
+                total
+                for partial in forward[-1]
+                for value in domains[cell]
+                for total in (partial + value,)
+                if (
+                    total + suffix_min[i + 1] <= target
+                    <= total + suffix_max[i + 1]
+                )
+            }
+
+            if not step:
+                return None
+
+            forward.append(step)
+
+        # Backward pass: sums achievable by cells[i:].
+        backward = [set() for _ in range(n)] + [{0}]
+
+        for i in range(n - 1, -1, -1):
+            backward[i] = {
+                partial + value
+                for partial in backward[i + 1]
+                for value in domains[cells[i]]
+                if partial + value <= target
+            }
+
+        supports = {}
+
+        for i, cell in enumerate(cells):
+            needed = {
+                target - suffix
+                for suffix in backward[i + 1]
+            }
+
+            supported = {
+                value
+                for value in domains[cell]
+                if any(
+                    prefix + value in needed
+                    for prefix in forward[i]
+                )
+            }
+
+            if not supported:
+                return None
+
+            supports[cell] = supported
+
+        return supports
+
+    def propagate(self, domains):
+        key = tuple(
+            frozenset(domains[var])
+            for var in self.variables
+        )
+
+        if key in self._support_cache:
+            cached = self._support_cache[key]
+
+            if cached is None:
+                raise ValueError(
+                    "Little Killer has no valid assignments"
+                )
+
+            supports = {
+                var: set(values)
+                for var, values in zip(self.variables, cached)
+            }
+
+        else:
+            supports = self._find_supports(domains)
+
+            # Detect contradictions before mutating.
+            if supports is None:
+                self._support_cache[key] = None
+                raise ValueError(
+                    "Little Killer has no valid assignments"
+                )
+
+            self._support_cache[key] = tuple(
+                frozenset(supports[var])
+                for var in self.variables
+            )
+
+        changed = False
+
+        for var in self.variables:
+            retained = domains[var] & supports[var]
+
+            if not retained:
+                raise ValueError(
+                    "Little Killer has no valid assignments"
+                )
+
+            if retained != domains[var]:
+                domains[var] = retained
+                changed = True
+
+        return changed
+
+
 def generate_knight_pairs():
     """
     Generate every unique pair of cells connected

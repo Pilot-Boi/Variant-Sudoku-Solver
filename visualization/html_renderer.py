@@ -15,7 +15,13 @@ from sudoku.constraints import (
     PalindromeConstraint,
     ArrowConstraint,
     KropkiConstraint,
-    NegativeKropkiConstraint
+    NegativeKropkiConstraint,
+    InequalityConstraint,
+    XVConstraint,
+    NegativeXVConstraint,
+    ParityConstraint,
+    BetweenLineConstraint,
+    LittleKillerConstraint
 )
 
 
@@ -36,6 +42,12 @@ VARIANT_STYLES = {
     "kropki-white": ("○", "Kropki White"),
     "kropki-black": ("●", "Kropki Black"),
     "kropki-negative": ("⊘", "Kropki Negative"),
+    "inequality": ("≶", "Inequality"),
+    "xv": ("✕", "XV"),
+    "xv-negative": ("⊘", "XV Negative"),
+    "parity": ("◐", "Odd/Even"),
+    "between": ("◎", "Between Line"),
+    "little-killer": ("⇘", "Little Killer"),
 }
 
 
@@ -130,6 +142,20 @@ def render_puzzle(
     }
 
     has_negative_kropki = False
+
+    inequalities = []
+    xv_markers = []
+    parity_marks = []
+    between_lines = []
+    little_killers = []
+
+    negative_xv_neighbors = {
+        (r, c): set()
+        for r in range(9)
+        for c in range(9)
+    }
+
+    has_negative_xv = False
     diagonal_cells = set()
     has_main_diagonal = False
     has_anti_diagonal = False
@@ -198,6 +224,16 @@ def render_puzzle(
 
             negative_kropki_neighbors[a].add(b)
             negative_kropki_neighbors[b].add(a)
+
+            continue
+
+        if isinstance(constraint, NegativeXVConstraint):
+            a, b = constraint.variables
+
+            has_negative_xv = True
+
+            negative_xv_neighbors[a].add(b)
+            negative_xv_neighbors[b].add(a)
 
             continue
 
@@ -282,6 +318,103 @@ def render_puzzle(
             )
 
             kropki_dots.append(constraint)
+
+        elif isinstance(constraint, XVConstraint):
+            kind = "xv"
+
+            a, b = constraint.variables
+
+            label = (
+                f"{variant_title(kind)} — "
+                f"{constraint.marker}: {cell_label(a)} + "
+                f"{cell_label(b)} = {constraint.target_sum}"
+            )
+
+            details = (
+                f"The digits must sum to "
+                f"{constraint.target_sum}."
+            )
+
+            xv_markers.append(constraint)
+
+        elif isinstance(constraint, InequalityConstraint):
+            kind = "inequality"
+
+            a, b = constraint.variables
+
+            label = (
+                f"{variant_title(kind)} — "
+                f"{cell_label(a)} {constraint.operator} "
+                f"{cell_label(b)}"
+            )
+
+            comparison = (
+                "less" if constraint.operator == "<"
+                else "greater"
+            )
+
+            details = (
+                f"{cell_label(a)}'s digit must be strictly "
+                f"{comparison} than {cell_label(b)}'s."
+            )
+
+            inequalities.append(constraint)
+
+        elif isinstance(constraint, ParityConstraint):
+            kind = "parity"
+
+            cell = constraint.variables[0]
+
+            label = (
+                f"{variant_title(kind)} — "
+                f"{cell_label(cell)} {constraint.parity}"
+            )
+
+            digits = ", ".join(
+                str(d) for d in sorted(constraint.allowed)
+            )
+
+            details = f"Must contain one of: {digits}."
+
+            parity_marks.append(constraint)
+
+        elif isinstance(constraint, BetweenLineConstraint):
+            kind = "between"
+
+            label = (
+                f"{variant_title(kind)} — "
+                f"{cell_label(cells[0])} to "
+                f"{cell_label(cells[-1])}"
+            )
+
+            details = (
+                "Endpoints: "
+                + f"{cell_label(cells[0])}, "
+                + f"{cell_label(cells[-1])}"
+                + " — Interior: "
+                + ", ".join(
+                    cell_label(c) for c in cells[1:-1]
+                )
+            )
+
+            between_lines.append(constraint)
+
+        elif isinstance(constraint, LittleKillerConstraint):
+            kind = "little-killer"
+
+            label = (
+                f"{variant_title(kind)} — "
+                f"sum {constraint.target_sum}"
+            )
+
+            details = (
+                "Digits along the diagonal sum to "
+                f"{constraint.target_sum} and may repeat. "
+                "Cells: "
+                + ", ".join(cell_label(c) for c in cells)
+            )
+
+            little_killers.append(constraint)
 
         elif (
             isinstance(constraint, AllDifferentConstraint)
@@ -445,12 +578,58 @@ def render_puzzle(
                     )
                 ),
             })
+
+    if has_negative_xv:
+        for cell, neighbors in negative_xv_neighbors.items():
+            if not neighbors:
+                continue
+
+            ordered_neighbors = sorted(neighbors)
+
+            inspector_constraints.append({
+                "id": len(inspector_constraints),
+                "kind": "xv-negative",
+                "label": variant_title("xv-negative"),
+                "owner": list(cell),
+                "cells": [
+                    list(cell),
+                    *[list(n) for n in ordered_neighbors],
+                ],
+                "details": (
+                    "Unmarked neighbors must sum to "
+                    "neither 5 nor 10: "
+                    + ", ".join(
+                        cell_label(n)
+                        for n in ordered_neighbors
+                    )
+                ),
+            })
             
     # Layer 2: Background
     elements.append(
         f'<rect width="{grid_size}" height="{grid_size}" '
         'fill="white"/>'
     )
+
+    # Layer 2b: Parity marks (behind all other markings)
+    for constraint in parity_marks:
+        cell = constraint.variables[0]
+        x, y = center(cell)
+
+        if constraint.parity == "odd":
+            elements.append(
+                f'<circle class="parity-layer" '
+                f'cx="{x}" cy="{y}" r="19" '
+                'fill="#d1d5db"/>'
+            )
+
+        else:
+            elements.append(
+                f'<rect class="parity-layer" '
+                f'x="{x - 17}" y="{y - 17}" '
+                'width="34" height="34" '
+                'fill="#d1d5db"/>'
+            )
 
     # Layer 3: Diagonal lines
     if has_main_diagonal:
@@ -655,6 +834,96 @@ def render_puzzle(
                 'stroke-linejoin="round"/>'
             )
 
+    # Layer 5f: Between Lines
+    for line in between_lines:
+        cells = list(line.variables)
+
+        points = [center(cell) for cell in cells]
+
+        path = " ".join(
+            f"{x},{y}" for x, y in points
+        )
+
+        elements.append(
+            f'<polyline class="between-layer" '
+            f'points="{path}" fill="none" '
+            'stroke="#f59e0b" stroke-width="3" '
+            'stroke-linecap="round" '
+            'stroke-linejoin="round"/>'
+        )
+
+        for x, y in (points[0], points[-1]):
+            elements.append(
+                f'<circle class="between-layer" '
+                f'cx="{x}" cy="{y}" r="20" '
+                'fill="white" '
+                'stroke="#f59e0b" stroke-width="3"/>'
+            )
+
+    # Layer 5g: Little Killer diagonals
+    for constraint in little_killers:
+        cells = list(constraint.variables)
+
+        points = [center(cell) for cell in cells]
+
+        if len(points) > 1:
+            path = " ".join(
+                f"{x},{y}" for x, y in points
+            )
+
+            elements.append(
+                f'<polyline class="little-killer-layer" '
+                f'points="{path}" fill="none" '
+                'stroke="#b45309" stroke-width="2.5" '
+                'stroke-opacity="0.8" '
+                'stroke-linecap="round"/>'
+            )
+
+            # Arrowhead at the far end of the diagonal.
+            tip_x, tip_y = points[-1]
+            prev_x, prev_y = points[-2]
+
+            angle = math.atan2(tip_y - prev_y, tip_x - prev_x)
+            spread = math.radians(150)
+
+            wings = [
+                (
+                    tip_x + 11 * math.cos(angle + sign * spread),
+                    tip_y + 11 * math.sin(angle + sign * spread),
+                )
+                for sign in (1, -1)
+            ]
+
+            elements.append(
+                f'<polyline class="little-killer-layer" '
+                f'points="{wings[0][0]:.1f},{wings[0][1]:.1f} '
+                f'{tip_x},{tip_y} '
+                f'{wings[1][0]:.1f},{wings[1][1]:.1f}" '
+                'fill="none" stroke="#b45309" '
+                'stroke-width="2.5" stroke-opacity="0.8" '
+                'stroke-linecap="round" '
+                'stroke-linejoin="round"/>'
+            )
+
+            step_r = cells[1][0] - cells[0][0]
+            step_c = cells[1][1] - cells[0][1]
+
+        else:
+            step_r, step_c = 1, 1
+
+        # Sum clue at the diagonal's entry corner.
+        x0, y0 = points[0]
+        text_x = x0 - step_c * 19
+        text_y = y0 - step_r * 19
+
+        elements.append(
+            f'<text class="little-killer-layer" '
+            f'x="{text_x}" y="{text_y + 4}" '
+            'text-anchor="middle" '
+            'font-size="13" font-weight="700" '
+            f'fill="#b45309">{constraint.target_sum}</text>'
+        )
+
     # Layer 6: Killer cages
     inset = 5
 
@@ -751,6 +1020,108 @@ def render_puzzle(
             f'fill="{fill}" stroke="{stroke}" '
             'stroke-width="1.5"/>'
         )
+
+    # Layer 7c: Inequality symbols
+    for constraint in inequalities:
+        a, b = constraint.variables
+
+        if constraint.operator == "<":
+            lesser, greater = a, b
+        else:
+            lesser, greater = b, a
+
+        dr = abs(a[0] - b[0])
+        dc = abs(a[1] - b[1])
+
+        ax, ay = center(a)
+        bx, by = center(b)
+
+        if dr + dc == 1:
+            # Adjacent: comparison symbol on the border,
+            # opening toward the greater cell.
+            x = (ax + bx) / 2
+            y = (ay + by) / 2
+
+            if a[0] == b[0]:
+                left = a if a[1] < b[1] else b
+                symbol = "<" if left == lesser else ">"
+            else:
+                top = a if a[0] < b[0] else b
+                symbol = "∧" if top == lesser else "∨"
+
+            elements.append(
+                f'<circle class="inequality-layer" '
+                f'cx="{x}" cy="{y}" r="10" '
+                'fill="white"/>'
+            )
+
+            elements.append(
+                f'<text class="inequality-layer" '
+                f'x="{x}" y="{y + 6}" '
+                'text-anchor="middle" '
+                'font-size="18" font-weight="700" '
+                f'fill="#334155">{escape(symbol)}</text>'
+            )
+
+        else:
+            # Nonadjacent: thin connector with an
+            # arrowhead pointing at the greater cell.
+            lx, ly = center(lesser)
+            gx, gy = center(greater)
+
+            elements.append(
+                f'<line class="inequality-layer" '
+                f'x1="{lx}" y1="{ly}" '
+                f'x2="{gx}" y2="{gy}" '
+                'stroke="#94a3b8" stroke-width="2" '
+                'stroke-dasharray="6 4"/>'
+            )
+
+            angle = math.atan2(gy - ly, gx - lx)
+            spread = math.radians(150)
+
+            wings = [
+                (
+                    gx + 11 * math.cos(angle + sign * spread),
+                    gy + 11 * math.sin(angle + sign * spread),
+                )
+                for sign in (1, -1)
+            ]
+
+            elements.append(
+                f'<polyline class="inequality-layer" '
+                f'points="{wings[0][0]:.1f},{wings[0][1]:.1f} '
+                f'{gx},{gy} '
+                f'{wings[1][0]:.1f},{wings[1][1]:.1f}" '
+                'fill="none" stroke="#94a3b8" '
+                'stroke-width="2" '
+                'stroke-linecap="round" '
+                'stroke-linejoin="round"/>'
+            )
+
+    # Layer 7d: XV markers
+    for constraint in xv_markers:
+        a, b = constraint.variables
+
+        ax, ay = center(a)
+        bx, by = center(b)
+
+        x = (ax + bx) / 2
+        y = (ay + by) / 2
+
+        elements.append(
+            f'<circle class="xv-layer" '
+            f'cx="{x}" cy="{y}" r="9" '
+            'fill="white"/>'
+        )
+
+        elements.append(
+            f'<text class="xv-layer" '
+            f'x="{x}" y="{y + 5}" '
+            'text-anchor="middle" '
+            'font-size="15" font-weight="700" '
+            f'fill="#334155">{constraint.marker}</text>'
+        )
     
     # Layer 8: Digits
     for r in range(9):
@@ -816,6 +1187,12 @@ def render_puzzle(
             dot.dot_type == "black" for dot in kropki_dots
         ),
         "kropki-negative": has_negative_kropki,
+        "inequality": bool(inequalities),
+        "xv": bool(xv_markers),
+        "xv-negative": has_negative_xv,
+        "parity": bool(parity_marks),
+        "between": bool(between_lines),
+        "little-killer": bool(little_killers),
     }
 
     variant_badges = [
@@ -962,6 +1339,11 @@ def render_puzzle(
     .palindrome-layer,
     .arrow-layer,
     .kropki-layer,
+    .inequality-layer,
+    .xv-layer,
+    .parity-layer,
+    .between-layer,
+    .little-killer-layer,
     .killer-layer {{
         pointer-events: none;
     }}
@@ -1057,6 +1439,36 @@ def render_puzzle(
                 <input type="checkbox" checked
                        onchange="toggleLayer('kropki', this.checked)">
                 Kropki dots
+            </label>
+
+            <label>
+                <input type="checkbox" checked
+                       onchange="toggleLayer('inequality', this.checked)">
+                Inequalities
+            </label>
+
+            <label>
+                <input type="checkbox" checked
+                       onchange="toggleLayer('xv', this.checked)">
+                XV
+            </label>
+
+            <label>
+                <input type="checkbox" checked
+                       onchange="toggleLayer('parity', this.checked)">
+                Odd/Even
+            </label>
+
+            <label>
+                <input type="checkbox" checked
+                       onchange="toggleLayer('between', this.checked)">
+                Between lines
+            </label>
+
+            <label>
+                <input type="checkbox" checked
+                       onchange="toggleLayer('little-killer', this.checked)">
+                Little Killer
             </label>
 
             <label>
@@ -1187,7 +1599,8 @@ function selectCell(r, c) {{
                 constraint.kind === "anti-knight" ||
                 constraint.kind === "anti-king" ||
                 constraint.kind === "nonconsecutive" ||
-                constraint.kind === "kropki-negative"
+                constraint.kind === "kropki-negative" ||
+                constraint.kind === "xv-negative"
             ) {{
                 return (
                     constraint.owner[0] === r &&

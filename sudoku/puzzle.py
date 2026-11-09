@@ -11,6 +11,12 @@ from sudoku.constraints import (
     ArrowConstraint,
     KropkiConstraint,
     NegativeKropkiConstraint,
+    InequalityConstraint,
+    XVConstraint,
+    NegativeXVConstraint,
+    ParityConstraint,
+    BetweenLineConstraint,
+    LittleKillerConstraint,
     generate_king_pairs,
     generate_knight_pairs,
     generate_orthogonal_pairs
@@ -50,6 +56,17 @@ class SudokuPuzzle:
         # and pairs covered by negative constraints.
         self._kropki_pairs = {}
         self._negative_kropki_pairs = set()
+
+        # XV bookkeeping, mirroring Kropki.
+        self._xv_pairs = {}
+        self._negative_xv_pairs = set()
+
+        # Inequality bookkeeping: ordered (lesser, greater)
+        # cell pairs, used to reject duplicates/conflicts.
+        self._inequality_relations = set()
+
+        # Parity bookkeeping: cell -> "odd" or "even".
+        self._parity_cells = {}
 
         self.add_standard_constraints()
         
@@ -471,6 +488,293 @@ class SudokuPuzzle:
             self.add_constraint(
                 NegativeKropkiConstraint(a, b)
             )
+
+
+    def add_inequality(self, cell_a, cell_b, operator):
+        """
+        Add an inequality between two cells.
+
+        operator "<": cell_a's digit is less than
+        cell_b's digit; ">": greater. The cells do not
+        need to be adjacent.
+        """
+        if operator not in InequalityConstraint.OPERATORS:
+            raise ValueError(
+                f"Invalid inequality operator: {operator!r}"
+            )
+
+        if cell_a == cell_b:
+            raise ValueError(
+                "An inequality needs two distinct cells."
+            )
+
+        if (
+            cell_a not in self.domains
+            or cell_b not in self.domains
+        ):
+            raise ValueError(
+                "Inequality references invalid cells."
+            )
+
+        if operator == "<":
+            relation = (cell_a, cell_b)
+        else:
+            relation = (cell_b, cell_a)
+
+        if relation in self._inequality_relations:
+            raise ValueError(
+                "This inequality is already defined."
+            )
+
+        if relation[::-1] in self._inequality_relations:
+            raise ValueError(
+                "A conflicting inequality is already "
+                "defined for these cells."
+            )
+
+        self._inequality_relations.add(relation)
+
+        self.add_constraint(
+            InequalityConstraint(cell_a, cell_b, operator)
+        )
+
+    def add_xv(self, cell_a, cell_b, marker):
+        """
+        Add an XV marker between two orthogonally
+        adjacent cells.
+
+        marker "V": the digits sum to 5.
+        marker "X": the digits sum to 10.
+
+        Markers must be added before calling
+        add_negative_xv_constraints().
+        """
+        if marker not in XVConstraint.MARKERS:
+            raise ValueError(
+                f"Invalid XV marker: {marker!r}"
+            )
+
+        if cell_a == cell_b:
+            raise ValueError(
+                "An XV marker needs two distinct cells."
+            )
+
+        if (
+            cell_a not in self.domains
+            or cell_b not in self.domains
+        ):
+            raise ValueError(
+                "XV marker references invalid cells."
+            )
+
+        dr = abs(cell_a[0] - cell_b[0])
+        dc = abs(cell_a[1] - cell_b[1])
+
+        if dr + dc != 1:
+            raise ValueError(
+                "XV markers connect orthogonally "
+                "adjacent cells only."
+            )
+
+        pair = tuple(sorted((cell_a, cell_b)))
+
+        if pair in self._xv_pairs:
+            raise ValueError(
+                f"An XV marker is already defined for "
+                f"{pair[0]} and {pair[1]}."
+            )
+
+        if pair in self._negative_xv_pairs:
+            raise ValueError(
+                f"Negative XV constraints already cover "
+                f"{pair[0]} and {pair[1]}. Add all markers "
+                f"before calling "
+                f"add_negative_xv_constraints()."
+            )
+
+        self._xv_pairs[pair] = marker
+
+        self.add_constraint(
+            XVConstraint(cell_a, cell_b, marker)
+        )
+
+    def add_negative_xv_constraints(self):
+        """
+        Add negative XV constraints to every orthogonally
+        adjacent pair without a marker.
+
+        Unmarked pairs must sum to neither 5 nor 10.
+        Repeated calls are idempotent.
+        """
+        for a, b in generate_orthogonal_pairs():
+            pair = tuple(sorted((a, b)))
+
+            if pair in self._xv_pairs:
+                continue
+
+            if pair in self._negative_xv_pairs:
+                continue
+
+            self._negative_xv_pairs.add(pair)
+
+            self.add_constraint(
+                NegativeXVConstraint(a, b)
+            )
+
+    def add_odd_cell(self, cell):
+        """Require a cell to contain an odd digit."""
+        self._add_parity(cell, "odd")
+
+    def add_even_cell(self, cell):
+        """Require a cell to contain an even digit."""
+        self._add_parity(cell, "even")
+
+    def _add_parity(self, cell, parity):
+        if cell not in self.domains:
+            raise ValueError(
+                "Parity constraint references an invalid cell."
+            )
+
+        existing = self._parity_cells.get(cell)
+
+        if existing == parity:
+            raise ValueError(
+                f"Cell {cell} is already marked {parity}."
+            )
+
+        if existing is not None:
+            raise ValueError(
+                f"Cell {cell} is already marked {existing}; "
+                f"it cannot also be {parity}."
+            )
+
+        self._parity_cells[cell] = parity
+
+        self.add_constraint(
+            ParityConstraint(cell, parity)
+        )
+
+    def add_between_line(self, cells):
+        """
+        Add a Between Line.
+
+        cells: ordered coordinates; the first and last
+        cells are the endpoints. Adjacent cells on the
+        line must be orthogonally or diagonally adjacent.
+        """
+        cells = list(cells)
+
+        if len(cells) < 3:
+            raise ValueError(
+                "A Between Line needs at least three cells."
+            )
+
+        if len(set(cells)) != len(cells):
+            raise ValueError(
+                "A Between Line cannot repeat a cell."
+            )
+
+        if any(cell not in self.domains for cell in cells):
+            raise ValueError(
+                "Between Line references invalid cells."
+            )
+
+        for a, b in zip(cells, cells[1:]):
+            dr = abs(a[0] - b[0])
+            dc = abs(a[1] - b[1])
+
+            if max(dr, dc) != 1:
+                raise ValueError(
+                    "Between Line cells must be orthogonally "
+                    "or diagonally adjacent."
+                )
+
+        self.add_constraint(
+            BetweenLineConstraint(cells)
+        )
+
+    @staticmethod
+    def little_killer_cells(clue_cell, direction):
+        """
+        Build the diagonal for a Little Killer clue
+        positioned just outside the grid.
+
+        clue_cell: (row, column) outside the 9x9 grid.
+        direction: "down-right", "down-left",
+        "up-right", or "up-left".
+        """
+        steps = {
+            "down-right": (1, 1),
+            "down-left": (1, -1),
+            "up-right": (-1, 1),
+            "up-left": (-1, -1),
+        }
+
+        if direction not in steps:
+            raise ValueError(
+                f"Invalid Little Killer direction: "
+                f"{direction!r}"
+            )
+
+        dr, dc = steps[direction]
+        r, c = clue_cell
+
+        cells = []
+
+        r += dr
+        c += dc
+
+        while 0 <= r < 9 and 0 <= c < 9:
+            cells.append((r, c))
+            r += dr
+            c += dc
+
+        if not cells:
+            raise ValueError(
+                "Little Killer diagonal does not enter "
+                "the grid."
+            )
+
+        return cells
+
+    def add_little_killer(self, cells, target_sum):
+        """
+        Add a Little Killer diagonal clue.
+
+        cells: ordered coordinates along the diagonal.
+        target_sum: required digit sum. Digits may
+        repeat where standard Sudoku allows it.
+        """
+        cells = list(cells)
+
+        if not cells:
+            raise ValueError(
+                "A Little Killer clue needs at least one cell."
+            )
+
+        if len(set(cells)) != len(cells):
+            raise ValueError(
+                "A Little Killer diagonal cannot repeat a cell."
+            )
+
+        if any(cell not in self.domains for cell in cells):
+            raise ValueError(
+                "Little Killer references invalid cells."
+            )
+
+        for a, b in zip(cells, cells[1:]):
+            dr = abs(a[0] - b[0])
+            dc = abs(a[1] - b[1])
+
+            if (dr, dc) != (1, 1):
+                raise ValueError(
+                    "Little Killer cells must be "
+                    "diagonally adjacent."
+                )
+
+        self.add_constraint(
+            LittleKillerConstraint(cells, target_sum)
+        )
 
 
     def add_constraint(self, constraint):

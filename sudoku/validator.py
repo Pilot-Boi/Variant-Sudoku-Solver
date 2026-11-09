@@ -9,6 +9,12 @@ from sudoku.constraints import (
     ArrowConstraint,
     KropkiConstraint,
     NegativeKropkiConstraint,
+    InequalityConstraint,
+    XVConstraint,
+    NegativeXVConstraint,
+    ParityConstraint,
+    BetweenLineConstraint,
+    LittleKillerConstraint,
 )
 
 def validate_solution(puzzle, solution):
@@ -289,5 +295,152 @@ def validate_solution(puzzle, solution):
                     f"must not be consecutive or in a 1:2 "
                     f"ratio"
                 )
+
+        elif isinstance(constraint, InequalityConstraint):
+            a, b = constraint.variables
+
+            value_a = solution.get(a)
+            value_b = solution.get(b)
+
+            label_a = f"R{a[0] + 1}C{a[1] + 1}"
+            label_b = f"R{b[0] + 1}C{b[1] + 1}"
+
+            if value_a is None or value_b is None:
+                errors.append(
+                    f"Inequality is incomplete: "
+                    f"{label_a} and {label_b}"
+                )
+
+            else:
+                operator = constraint.operator
+
+                satisfied = (
+                    value_a < value_b
+                    if operator == "<"
+                    else value_a > value_b
+                )
+
+                if not satisfied:
+                    errors.append(
+                        f"Inequality violation: {label_a} "
+                        f"must be {operator} {label_b}"
+                    )
+
+        elif isinstance(constraint, XVConstraint):
+            a, b = constraint.variables
+
+            value_a = solution.get(a)
+            value_b = solution.get(b)
+
+            label_a = f"R{a[0] + 1}C{a[1] + 1}"
+            label_b = f"R{b[0] + 1}C{b[1] + 1}"
+
+            expected = 5 if constraint.marker == "V" else 10
+
+            if value_a is None or value_b is None:
+                errors.append(
+                    f"XV marker is incomplete: "
+                    f"{label_a} and {label_b}"
+                )
+
+            elif value_a + value_b != expected:
+                errors.append(
+                    f"XV violation: {constraint.marker} "
+                    f"marker requires {label_a} and "
+                    f"{label_b} to sum to {expected}"
+                )
+
+        elif isinstance(constraint, NegativeXVConstraint):
+            a, b = constraint.variables
+
+            value_a = solution.get(a)
+            value_b = solution.get(b)
+
+            label_a = f"R{a[0] + 1}C{a[1] + 1}"
+            label_b = f"R{b[0] + 1}C{b[1] + 1}"
+
+            if value_a is None or value_b is None:
+                errors.append(
+                    f"Negative XV pair is incomplete: "
+                    f"{label_a} and {label_b}"
+                )
+
+            elif value_a + value_b in (5, 10):
+                errors.append(
+                    f"Negative XV violation: the unmarked "
+                    f"pair {label_a} and {label_b} must "
+                    f"sum to neither 5 nor 10"
+                )
+
+        elif isinstance(constraint, ParityConstraint):
+            cell = constraint.variables[0]
+
+            value = solution.get(cell)
+
+            label = f"R{cell[0] + 1}C{cell[1] + 1}"
+
+            if value is None:
+                errors.append(
+                    f"Parity cell is incomplete: {label}"
+                )
+
+            else:
+                is_odd = value % 2 == 1
+
+                if constraint.parity == "odd" and not is_odd:
+                    errors.append(
+                        f"Parity violation: {label} must "
+                        f"contain an odd digit"
+                    )
+
+                elif constraint.parity == "even" and is_odd:
+                    errors.append(
+                        f"Parity violation: {label} must "
+                        f"contain an even digit"
+                    )
+
+        elif isinstance(constraint, BetweenLineConstraint):
+            cells = constraint.variables
+
+            values = [solution.get(cell) for cell in cells]
+
+            if any(value is None for value in values):
+                errors.append(
+                    f"Between Line is incomplete: {cells}"
+                )
+
+            else:
+                low, high = sorted((values[0], values[-1]))
+
+                for cell, value in zip(
+                    cells[1:-1], values[1:-1]
+                ):
+                    if not low < value < high:
+                        errors.append(
+                            f"Between Line violation: "
+                            f"R{cell[0] + 1}C{cell[1] + 1} "
+                            f"= {value} is not strictly "
+                            f"between {low} and {high}"
+                        )
+
+        elif isinstance(constraint, LittleKillerConstraint):
+            cells = constraint.variables
+
+            values = [solution.get(cell) for cell in cells]
+
+            if any(value is None for value in values):
+                errors.append(
+                    f"Little Killer is incomplete: {cells}"
+                )
+
+            else:
+                total = sum(values)
+
+                if total != constraint.target_sum:
+                    errors.append(
+                        f"Little Killer violation: diagonal "
+                        f"{cells} sums to {total}, expected "
+                        f"{constraint.target_sum}"
+                    )
         
     return errors
