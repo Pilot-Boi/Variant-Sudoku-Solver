@@ -10,7 +10,8 @@ from sudoku.constraints import (
     NotEqualConstraint,
     NonConsecutiveConstraint,
     GermanWhispersConstraint,
-    RenbanConstraint
+    RenbanConstraint,
+    PalindromeConstraint
 )
 
 
@@ -26,6 +27,7 @@ VARIANT_STYLES = {
     "nonconsecutive": ("↔", "Nonconsecutive"),
     "whispers": ("≋", "German Whispers"),
     "renban": ("≡", "Renban"),
+    "palindrome": ("⇄", "Palindrome"),
 }
 
 
@@ -109,6 +111,7 @@ def render_puzzle(
     thermometers = []
     whisper_lines = []
     renban_lines = []
+    palindrome_lines = []
     diagonal_cells = set()
     anti_knight_neighbors = {
         (r, c): set()
@@ -201,6 +204,15 @@ def render_puzzle(
                 f"{cell_label(cells[-1])}"
             )
             renban_lines.append(constraint)
+
+        elif isinstance(constraint, PalindromeConstraint):
+            kind = "palindrome"
+            label = (
+                f"{variant_title(kind)} — "
+                f"{cell_label(cells[0])} to "
+                f"{cell_label(cells[-1])}"
+            )
+            palindrome_lines.append(constraint)
 
         elif (
             isinstance(constraint, AllDifferentConstraint)
@@ -438,6 +450,25 @@ def render_puzzle(
             'stroke-linejoin="round"/>'
         )
 
+    # Layer 5d: Palindrome lines
+    for line in palindrome_lines:
+        cells = list(line.variables)
+
+        points = [center(cell) for cell in cells]
+
+        path = " ".join(
+            f"{x},{y}" for x, y in points
+        )
+
+        elements.append(
+            f'<polyline class="palindrome-layer" '
+            f'points="{path}" fill="none" '
+            'stroke="#ec4899" stroke-width="12" '
+            'stroke-opacity="0.65" '
+            'stroke-linecap="round" '
+            'stroke-linejoin="round"/>'
+        )
+
     # Layer 6: Killer cages
     inset = 5
 
@@ -565,6 +596,7 @@ def render_puzzle(
         "nonconsecutive": has_nonconsecutive,
         "whispers": bool(whisper_lines),
         "renban": bool(renban_lines),
+        "palindrome": bool(palindrome_lines),
     }
 
     variant_badges = [
@@ -708,6 +740,7 @@ def render_puzzle(
     .thermometer-layer,
     .whispers-layer,
     .renban-layer,
+    .palindrome-layer,
     .killer-layer {{
         pointer-events: none;
     }}
@@ -785,6 +818,12 @@ def render_puzzle(
                 <input type="checkbox" checked
                        onchange="toggleLayer('renban', this.checked)">
                 Renban
+            </label>
+
+            <label>
+                <input type="checkbox" checked
+                       onchange="toggleLayer('palindrome', this.checked)">
+                Palindrome
             </label>
 
             <label>

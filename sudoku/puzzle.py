@@ -7,6 +7,7 @@ from sudoku.constraints import (
     NonConsecutiveConstraint,
     GermanWhispersConstraint,
     RenbanConstraint,
+    PalindromeConstraint,
     generate_king_pairs,
     generate_knight_pairs,
     generate_orthogonal_pairs
@@ -261,6 +262,47 @@ class SudokuPuzzle:
 
         self.add_constraint(
             RenbanConstraint(cells)
+        )
+
+
+    def add_palindrome(self, cells):
+        """
+        Add a Palindrome line.
+
+        cells: ordered list of (row, column) coordinates
+        forming a connected path. Adjacent cells on the
+        line must be orthogonally or diagonally adjacent
+        on the grid. Lines may exceed nine cells.
+        """
+        cells = list(cells)
+
+        if len(cells) < 2:
+            raise ValueError(
+                "A Palindrome line needs at least two cells."
+            )
+
+        if len(set(cells)) != len(cells):
+            raise ValueError(
+                "A Palindrome line cannot repeat a cell."
+            )
+
+        if any(cell not in self.domains for cell in cells):
+            raise ValueError(
+                "Palindrome line references invalid cells."
+            )
+
+        for a, b in zip(cells, cells[1:]):
+            dr = abs(a[0] - b[0])
+            dc = abs(a[1] - b[1])
+
+            if max(dr, dc) != 1:
+                raise ValueError(
+                    "Palindrome cells must be orthogonally "
+                    "or diagonally adjacent."
+                )
+
+        self.add_constraint(
+            PalindromeConstraint(cells)
         )
 
 

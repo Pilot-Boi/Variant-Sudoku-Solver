@@ -5,6 +5,7 @@ from sudoku.constraints import (
     NonConsecutiveConstraint,
     GermanWhispersConstraint,
     RenbanConstraint,
+    PalindromeConstraint,
 )
 
 def validate_solution(puzzle, solution):
@@ -168,5 +169,25 @@ def validate_solution(puzzle, solution):
                     f"Renban line digits are not consecutive: "
                     f"{cells}"
                 )
+
+        elif isinstance(constraint, PalindromeConstraint):
+            cells = constraint.variables
+
+            if any(
+                solution.get(cell) is None
+                for cell in cells
+            ):
+                errors.append(
+                    f"Palindrome line is incomplete: {cells}"
+                )
+
+            else:
+                for a, b in constraint.mirrored_pairs:
+                    if solution[a] != solution[b]:
+                        errors.append(
+                            f"Palindrome mismatch: "
+                            f"R{a[0] + 1}C{a[1] + 1} and "
+                            f"R{b[0] + 1}C{b[1] + 1}"
+                        )
         
     return errors

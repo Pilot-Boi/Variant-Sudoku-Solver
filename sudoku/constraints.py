@@ -948,6 +948,82 @@ class RenbanConstraint(Constraint):
         return changed
 
 
+class PalindromeConstraint(Constraint):
+    """
+    Palindrome line.
+
+    The sequence of digits must read the same in both
+    directions: values[i] == values[N - 1 - i] for every
+    mirrored pair. The center cell of an odd-length line
+    is unrestricted.
+    """
+
+    def __init__(self, cells):
+        cells = tuple(cells)
+
+        if len(cells) < 2:
+            raise ValueError(
+                "A Palindrome line needs at least two cells."
+            )
+
+        if len(set(cells)) != len(cells):
+            raise ValueError(
+                "A Palindrome line cannot repeat a cell."
+            )
+
+        super().__init__(cells)
+
+        n = len(cells)
+
+        self.mirrored_pairs = tuple(
+            (cells[i], cells[n - 1 - i])
+            for i in range(n // 2)
+        )
+
+    def is_satisfied(self, assignment):
+        for a, b in self.mirrored_pairs:
+            if a not in assignment or b not in assignment:
+                continue
+
+            if assignment[a] != assignment[b]:
+                return False
+
+        return True
+
+    def propagate(self, domains):
+        """
+        Intersect the domains of every mirrored pair.
+
+        Equality propagation is exact for this constraint,
+        so no support enumeration is needed.
+        """
+        # Detect contradictions before mutating domains.
+        intersections = []
+
+        for a, b in self.mirrored_pairs:
+            common = domains[a] & domains[b]
+
+            if not common:
+                raise ValueError(
+                    "PalindromeConstraint contradiction"
+                )
+
+            intersections.append((a, b, common))
+
+        changed = False
+
+        for a, b, common in intersections:
+            if domains[a] != common:
+                domains[a] = set(common)
+                changed = True
+
+            if domains[b] != common:
+                domains[b] = set(common)
+                changed = True
+
+        return changed
+
+
 def generate_knight_pairs():
     """
     Generate every unique pair of cells connected
