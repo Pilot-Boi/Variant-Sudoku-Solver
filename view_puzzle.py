@@ -1,5 +1,5 @@
 
-from puzzles.renban_001 import NAME, create_puzzle
+from puzzles.palindrome_001 import NAME, create_puzzle
 from visualization.html_renderer import show_puzzle
 
 
@@ -29,7 +29,7 @@ def main():
     path = show_puzzle(
         puzzle,
         title=NAME,
-        output="output/renban_001.html",
+        output="output/palindrome_001.html",
         solution=solution_grid
     )
 
