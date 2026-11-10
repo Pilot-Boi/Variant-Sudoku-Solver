@@ -468,7 +468,7 @@ class TestCageParsing(unittest.TestCase):
 
         self.assertEqual(sums, [10, 11, 12])
         self.assertEqual(model["unrecognized"], [])
-
+    
     def test_malformed_sums_rejected(self):
         model = self.cage_model([
             {"ce": [[0, 0], [0, 1]], "v": 12.5},
@@ -477,8 +477,15 @@ class TestCageParsing(unittest.TestCase):
             {"ce": [[3, 0], [3, 1]], "v": True},
         ])
 
+        # The three malformed sums should be rejected.
         self.assertNotIn("killer", model["constraints"])
-        self.assertEqual(len(model["unrecognized"]), 4)
+        self.assertEqual(len(model["unrecognized"]), 3)
+
+        # The missing sum is now a valid sumless Killer cage.
+        self.assertEqual(
+            model["constraints"].get("sumless_killer"),
+            [((2, 0), (2, 1))]
+        )
 
     def test_invalid_coordinates_rejected(self):
         model = self.cage_model([

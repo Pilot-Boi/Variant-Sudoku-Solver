@@ -1088,6 +1088,7 @@ def _coerce_cage_sum(value):
     return None
 
 
+
 def _classify_cage(model, cage):
     if not isinstance(cage, dict):
         model["unrecognized"].append(
@@ -1130,13 +1131,24 @@ def _classify_cage(model, cage):
         )
         return
 
-    total = _coerce_cage_sum(value)
-
-    if total is None:
-        model["unrecognized"].append(
-            f"Cage without a valid integer sum: {cage}"
+    # Distinguish genuinely absent clues from
+    # invalid or unrecognized numeric clues.
+    is_sumless = (
+        value is None
+        or (
+            isinstance(value, str)
+            and not value.strip()
         )
-        return
+    )
+
+    if not is_sumless:
+        total = _coerce_cage_sum(value)
+
+        if total is None:
+            model["unrecognized"].append(
+                f"Cage without a valid integer sum: {cage}"
+            )
+            return
 
     converted = []
 
@@ -1160,10 +1172,22 @@ def _classify_cage(model, cage):
 
         converted.append((r, c))
 
-    _add_constraint(
-        model, "killer",
-        (tuple(converted), total),
-    )
+    if len(set(converted)) != len(converted):
+        model["unrecognized"].append(
+            f"Cage with duplicate cells: {cage}"
+        )
+        return
+
+    if is_sumless:
+        _add_constraint(
+            model, "sumless_killer",
+            tuple(converted),
+        )
+    else:
+        _add_constraint(
+            model, "killer",
+            (tuple(converted), total),
+        )
 
 
 # ----------------------------------------------------------
@@ -1297,11 +1321,22 @@ def parse_fpuzzles(data, source_url="", payload=""):
             for cell in entry.get("cells", [])
         )
 
+        raw_value = entry.get("value")
+
+        # A genuinely missing or blank clue means
+        # this cage only enforces no repeated digits.
+        if raw_value is None or (
+            isinstance(raw_value, str)
+            and not raw_value.strip()
+        ):
+            _add_constraint(model, "sumless_killer", cells)
+            continue
+
         try:
-            total = int(entry.get("value"))
+            total = int(raw_value)
         except (TypeError, ValueError):
             model["unrecognized"].append(
-                f"Killer cage without numeric sum: {entry}"
+                f"Killer cage with invalid sum: {entry}"
             )
             continue
 
@@ -1635,6 +1670,12 @@ def generate_module(model, module_name):
             f"    puzzle.add_killer_cage("
             f"{list(cells)}, {total})"
         )
+    
+    for cells in constraints.get("sumless_killer", []):
+        lines.append(
+            f"    puzzle.add_sumless_killer_cage("
+            f"{list(cells)})"
+        )
 
     for cells, total in constraints.get(
         "little-killer", []
@@ -1658,7 +1699,7 @@ def generate_module(model, module_name):
             "    puzzle.add_diagonal_constraints()"
         )
     else:
-        for diagonal in single_diagonals:
+        for diagonal in diagonals:
             if diagonal == "main":
                 cells = [(i, i) for i in range(9)]
                 comment = "Main diagonal only."

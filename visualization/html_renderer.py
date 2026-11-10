@@ -31,6 +31,7 @@ from sudoku.constraints import (
 VARIANT_STYLES = {
     "thermometer": ("🌡️", "Thermometer"),
     "killer": ("∑", "Killer Cage"),
+    "sumless-killer": ("∑", "Sumless Killer Cage"),
     "diagonal": ("╳", "Diagonal"),
     "anti-knight": ("♞", "Anti-Knight"),
     "anti-king": ("♚", "Anti-King"),
@@ -242,6 +243,18 @@ def render_puzzle(
             label = (
                 f"{variant_title(kind)} — "
                 f"sum {constraint.target_sum}"
+            )
+            cages.append(constraint)
+        
+        elif (
+            isinstance(constraint, AllDifferentConstraint)
+            and getattr(constraint, "is_sumless_killer", False)
+        ):
+            kind = "sumless-killer"
+            label = f"{variant_title(kind)} — No sum"
+            details = (
+                "Digits cannot repeat within this cage. "
+                "There is no sum requirement."
             )
             cages.append(constraint)
 
@@ -969,15 +982,16 @@ def render_puzzle(
                         'stroke-dasharray="5 3"/>'
                     )
 
-        r, c = min(cells)
+        if isinstance(cage, KillerCageConstraint):
+            r, c = min(cells)
 
-        elements.append(
-            f'<text class="killer-layer" '
-            f'x="{c * cell_size + 9}" '
-            f'y="{r * cell_size + 19}" '
-            'font-size="14" font-weight="600" '
-            f'fill="#1d4ed8">{cage.target_sum}</text>'
-        )
+            elements.append(
+                f'<text class="killer-layer" '
+                f'x="{c * cell_size + 9}" '
+                f'y="{r * cell_size + 19}" '
+                'font-size="14" font-weight="600" '
+                f'fill="#1d4ed8">{cage.target_sum}</text>'
+            )
 
     # Layer 7: Grid lines
     for i in range(10):
@@ -1171,7 +1185,14 @@ def render_puzzle(
     
     active_variants = {
         "thermometer": bool(thermometers),
-        "killer": bool(cages),
+        "killer": any(
+            isinstance(cage, KillerCageConstraint)
+            for cage in cages
+        ),
+        "sumless-killer": any(
+            getattr(cage, "is_sumless_killer", False)
+            for cage in cages
+        ),
         "diagonal": bool(diagonal_cells),
         "anti-knight": has_anti_knight,
         "anti-king": has_anti_king,

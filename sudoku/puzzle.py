@@ -208,7 +208,16 @@ class SudokuPuzzle:
             KillerCageConstraint(cells, target_sum)
         )
 
+    def add_sumless_killer_cage(self, cells):
+        """
+        Killer cage with no sum clue.
+        Digits cannot repeat, but no sum is enforced.
+        """
+        constraint = AllDifferentConstraint(cells)
+        constraint.is_sumless_killer = True
 
+        self.constraints.append(constraint)
+        
     def add_german_whispers(self, cells):
         """
         Add a German Whispers line.

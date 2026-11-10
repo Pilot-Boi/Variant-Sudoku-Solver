@@ -1,7 +1,7 @@
 
 import argparse
 
-from puzzles.ctc_003 import NAME, create_puzzle
+from puzzles.ctc_004 import NAME, create_puzzle
 from visualization.html_renderer import show_puzzle
 
 
