@@ -24,6 +24,11 @@ SUPPORTED_VARIANTS = {
         "prefix": "anti_king",
         "name": "Anti-King Sudoku",
     },
+    "antiknightsudoku": {
+        "folder": "anti_knight",
+        "prefix": "anti_knight",
+        "name": "Anti-Knight Sudoku",
+    },
     "killersudoku": {
         "folder": "killer",
         "prefix": "killer",
@@ -39,6 +44,14 @@ SUPPORTED_VARIANTS = {
         "prefix": "thermo",
         "name": "Thermometer Sudoku",
     },
+}
+
+EXPECTED_RULESETS = {
+    "antikingsudoku": {"AntiKing"},
+    "antiknightsudoku": {"AntiKnight"},
+    "killersudoku": {"KillerClues"},
+    "arrowsudoku": {"Arrow"},
+    "thermosudoku": {"Thermo"},
 }
 
 
@@ -94,14 +107,6 @@ def extract_puzzle_data(html):
         )
 
     return data
-
-EXPECTED_RULESETS = {
-    "antikingsudoku": {"AntiKing"},
-    "killersudoku": {"KillerClues"},
-    "arrowsudoku": {"Arrow"},
-    "thermosudoku": {"Thermo"},
-}
-
 
 def validate_puzzle_data(data):
     """Validate basic puzzle structure and supported rules."""
@@ -214,6 +219,14 @@ def generate_constraint_code(data):
 
         lines.append("    puzzle.add_anti_king_constraints()")
 
+    elif variant == "antiknightsudoku":
+        if rule_data is not True:
+            raise PuzzleMadnessImportError(
+                "Expected AntiKnight rule data to be true."
+            )
+
+        lines.append("    puzzle.add_anti_knight_constraints()")
+    
     elif variant == "killersudoku":
         if not isinstance(rule_data, dict):
             raise PuzzleMadnessImportError(
