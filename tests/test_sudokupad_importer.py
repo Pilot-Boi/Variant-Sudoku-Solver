@@ -1,7 +1,9 @@
+import tempfile
 import unittest
 import urllib.error
 from pathlib import Path
 from unittest import mock
+from unittest.mock import patch
 
 from tools import sudokupad_importer as importer
 from tools.sudokupad_importer import (
@@ -762,9 +764,31 @@ class TestOutputGeneration(unittest.TestCase):
     def test_write_module_refuses_overwrite(self):
         model = wanddeko_model()
 
-        # thermo_001 already exists in puzzles/.
-        with self.assertRaises(SudokuPadImportError):
-            write_module(model, "thermo_001")
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with patch(
+                "tools.sudokupad_importer.PROJECT_ROOT",
+                Path(temp_dir)
+            ):
+                # Create the destination folder.
+                puzzle_dir = Path(temp_dir) / "puzzles" / "ctc"
+                puzzle_dir.mkdir(parents=True, exist_ok=True)
+
+                # Create a file that already exists.
+                existing_file = puzzle_dir / "test_existing.py"
+                existing_file.write_text(
+                    "# Existing puzzle",
+                    encoding="utf-8"
+                )
+
+                # Importer should refuse to overwrite it.
+                with self.assertRaises(SudokuPadImportError):
+                    write_module(model, "test_existing")
+
+                # Verify the original file was not modified.
+                self.assertEqual(
+                    existing_file.read_text(encoding="utf-8"),
+                    "# Existing puzzle"
+                )
 
     def test_report_contents(self):
         model = wanddeko_model()

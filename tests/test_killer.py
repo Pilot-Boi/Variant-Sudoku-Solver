@@ -2,7 +2,7 @@
 import unittest
 from unittest.mock import patch
 
-from puzzles.killer_001 import CAGES, create_puzzle
+from puzzles.generic.killer.killer_001 import CAGES, create_puzzle
 from sudoku.constraints import KillerCageConstraint
 
 class TestKillerPuzzle(unittest.TestCase):

@@ -21,7 +21,7 @@ import sys
 import time
 from pathlib import Path
 
-from puzzles.ctc_002 import SOLUTION, create_puzzle
+from puzzles.ctc.ctc_002 import SOLUTION, create_puzzle
 from sudoku.validator import validate_solution
 
 

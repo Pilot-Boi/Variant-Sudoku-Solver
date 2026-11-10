@@ -1,6 +1,6 @@
 import unittest
 
-from puzzles.anti_knight_001 import create_puzzle
+from puzzles.generic.anti_knight.anti_knight_001 import create_puzzle
 from sudoku.puzzle import SudokuPuzzle
 from sudoku.validator import validate_solution
 from sudoku.constraints import (

@@ -1,7 +1,7 @@
 
 import unittest
 
-from puzzles.thermo_001 import create_puzzle
+from puzzles.generic.thermo.thermo_001 import create_puzzle
 
 
 class TestThermoPuzzle(unittest.TestCase):

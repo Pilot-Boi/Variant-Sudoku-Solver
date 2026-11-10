@@ -11,6 +11,7 @@ from benchmarks.ctc_metadata import (
     get_ctc_metadata,
     seconds_to_duration,
 )
+from benchmarks.benchmark_utils import discover_puzzle_modules
 
 TRIALS = 5
 
@@ -62,40 +63,16 @@ CTC_COMPARISON_FIELDNAMES = [
 ]
 
 def discover_puzzles():
-    """
-    Discover puzzle modules exposing create_puzzle().
-
-    Returns a dictionary:
-        {puzzle_name: create_puzzle_function}
-    """
+    """Discover all puzzles recursively, including CTC puzzles."""
     discovered = {}
 
-    for module_info in pkgutil.iter_modules(puzzles.__path__):
-        if module_info.ispkg:
-            continue
-
-        module_name = module_info.name
-
-        if module_name.startswith("_"):
-            continue
-
-        module = importlib.import_module(
-            f"puzzles.{module_name}"
-        )
-
-        create_puzzle = getattr(module, "create_puzzle", None)
-
-        if not callable(create_puzzle):
-            continue
-
-        name = getattr(module, "NAME", module_name)
+    for module_path, module in discover_puzzle_modules().items():
+        name = getattr(module, "NAME", module_path)
 
         if name in discovered:
-            raise ValueError(
-                f"Duplicate puzzle name: {name}"
-            )
+            raise ValueError(f"Duplicate puzzle name: {name}")
 
-        discovered[name] = create_puzzle
+        discovered[name] = module.create_puzzle
 
     return dict(sorted(discovered.items()))
 

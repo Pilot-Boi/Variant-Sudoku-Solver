@@ -1740,8 +1740,10 @@ def generate_module(model, module_name):
 
 
 def write_module(model, module_name, force=False):
-    """Write the generated module into puzzles/."""
-    path = PROJECT_ROOT / "puzzles" / f"{module_name}.py"
+    """Write the generated module into puzzles/ctc/."""
+    output_path = PROJECT_ROOT / "puzzles" / "ctc" / f"{module_name}.py"
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    path = output_path
 
     if path.exists() and not force:
         raise SudokuPadImportError(
@@ -1899,7 +1901,7 @@ def main(argv=None):
         "--module",
         default=None,
         help=(
-            "Module name to generate under puzzles/ "
+            "Module name to generate under puzzles/ctc/ "
             "(for example ctc_002). Only written when "
             "the import is Complete, unless --force."
         ),

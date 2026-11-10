@@ -26,21 +26,46 @@ CTC_COMPARISON_FIELDNAMES = [
     'Constraints', 'Solution Status', 'Validation',
 ]
 
-
 def discover_puzzle_modules():
-    """Return {module_basename: imported_module} for modules with create_puzzle."""
+    """Discover puzzle modules recursively, keyed by fully qualified module path."""
     discovered = {}
-    for info in pkgutil.iter_modules(puzzles.__path__):
-        if info.ispkg or info.name.startswith('_'):
+    for info in pkgutil.walk_packages(puzzles.__path__, prefix="puzzles."):
+        if info.ispkg or info.name.rsplit(".", 1)[-1].startswith("_"):
             continue
-        module = importlib.import_module(f'puzzles.{info.name}')
-        if callable(getattr(module, 'create_puzzle', None)):
+        module = importlib.import_module(info.name)
+        if callable(getattr(module, "create_puzzle", None)):
             discovered[info.name] = module
     return dict(sorted(discovered.items()))
 
 
 def is_ctc_module(module_name):
-    return module_name.startswith('ctc_')
+    """Support both legacy puzzles.ctc_001 and new puzzles.ctc.ctc_001."""
+    parts = module_name.split(".")
+    return (len(parts) >= 3 and parts[1] == "ctc") or parts[-1].startswith("ctc_")
+
+
+def discover_puzzles(category=None):
+    """
+    Return {puzzle_name: create_puzzle_function}
+    for all discovered puzzle modules.
+    """
+    discovered = {}
+
+    for module_path, module in discover_puzzle_modules().items():
+        if category == "generic" and ".generic." not in module_path:
+            continue
+
+        if category == "ctc" and not is_ctc_module(module_path):
+            continue
+
+        name = getattr(module, "NAME", module_path)
+
+        if name in discovered:
+            raise ValueError(f"Duplicate puzzle name: {name}")
+
+        discovered[name] = module.create_puzzle
+
+    return dict(sorted(discovered.items()))
 
 
 def compute_video_ratio(video_seconds, elapsed_seconds):

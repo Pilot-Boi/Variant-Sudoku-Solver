@@ -25,15 +25,26 @@ def main(argv=None):
     args = parser.parse_args(argv)
     if args.trials < 1:
         parser.error('--trials must be at least 1')
-    modules = {
+    all_modules = {
         key: module for key, module in discover_puzzle_modules().items()
         if is_ctc_module(key)
     }
+    # Accept short names (ctc_005) and full paths (puzzles.ctc.ctc_005).
+    short_names = {}
+    for path in all_modules:
+        short = path.rsplit(".", 1)[-1]
+        if short in short_names:
+            parser.error(f"Duplicate CTC module basename: {short}")
+        short_names[short] = path
+    modules = all_modules
     if args.puzzle:
-        missing = sorted(set(args.puzzle) - set(modules))
-        if missing:
-            parser.error(f'Unknown CTC puzzle module(s): {", ".join(missing)}')
-        modules = {key: modules[key] for key in sorted(set(args.puzzle))}
+        selected = {}
+        for requested in args.puzzle:
+            path = requested if requested in all_modules else short_names.get(requested)
+            if path is None:
+                parser.error(f"Unknown CTC puzzle module: {requested}")
+            selected[path] = all_modules[path]
+        modules = dict(sorted(selected.items()))
     print(f'Discovered {len(modules)} selected CTC puzzles.\n')
     results = []
     for key, module in modules.items():
@@ -50,7 +61,7 @@ def main(argv=None):
 
     # A targeted run must not overwrite the full-collection CSVs.
     if args.puzzle:
-        stem = '_'.join(sorted(set(args.puzzle)))
+        stem = '_'.join(sorted(key.rsplit('.', 1)[-1] for key in modules))
         output = Path('output') / f'ctc_benchmark_{stem}.csv'
         comparison = Path('output') / f'ctc_comparison_{stem}.csv'
     else:

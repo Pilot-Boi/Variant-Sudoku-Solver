@@ -6,7 +6,7 @@ from sudoku.constraints import (
     generate_orthogonal_pairs,
 )
 from sudoku.puzzle import SudokuPuzzle
-from puzzles.nonconsecutive_001 import create_puzzle
+from puzzles.generic.nonconsecutive.nonconsecutive_001 import create_puzzle
 from sudoku.validator import validate_solution
 
 

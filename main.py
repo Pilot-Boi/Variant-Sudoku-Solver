@@ -1,5 +1,5 @@
 from time import perf_counter
-from puzzles.ctc_002 import NAME, create_puzzle
+from puzzles.ctc.ctc_002 import NAME, create_puzzle
 from sudoku.validator import validate_solution
 
 def main():

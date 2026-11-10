@@ -1,6 +1,6 @@
 import unittest
 
-from puzzles.anti_king_001 import create_puzzle
+from puzzles.generic.anti_king.anti_king_001 import create_puzzle
 from sudoku.constraints import (
     NotEqualConstraint,
     generate_king_pairs,
