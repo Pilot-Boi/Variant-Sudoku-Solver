@@ -3,6 +3,7 @@
 import argparse
 import json
 import re
+from turtle import delay
 import urllib.request
 from urllib.parse import urlparse
 
@@ -17,6 +18,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 PUZZLE_ROOT = PROJECT_ROOT / "puzzles" / "generic"
 
 BASE_URL = "https://puzzlemadness.co.uk"
+_last_request_time = None
 
 SUPPORTED_VARIANTS = {
     "antikingsudoku": {
@@ -181,6 +183,22 @@ def validate_puzzle_data(data):
 
     return variant
 
+def wait_for_request_slot(delay):
+    """Ensure a minimum delay between website requests."""
+
+    global _last_request_time
+
+    now = time.monotonic()
+
+    if _last_request_time is not None:
+        elapsed = now - _last_request_time
+        remaining = delay - elapsed
+
+        if remaining > 0:
+            time.sleep(remaining)
+
+    _last_request_time = time.monotonic()
+    
 def cell_coordinates(index):
     """Convert a flat cell index to (row, column)."""
 
@@ -383,6 +401,26 @@ def create_puzzle():
     return puzzle
 '''
 
+def get_module_path(variant, puzzle_date):
+    """Return the destination path for a PuzzleMadness puzzle."""
+
+    if variant not in SUPPORTED_VARIANTS:
+        raise PuzzleMadnessImportError(
+            f"Unsupported variant: {variant}"
+        )
+
+    config = SUPPORTED_VARIANTS[variant]
+
+    module_name = (
+        f"{config['prefix']}_{puzzle_date:%Y_%m_%d}"
+    )
+
+    return (
+        PUZZLE_ROOT
+        / config["folder"]
+        / f"{module_name}.py"
+    )
+    
 def write_module(data, url, difficulty, force=False):
     """Write a generated puzzle module to the correct directory."""
 
@@ -402,18 +440,12 @@ def write_module(data, url, difficulty, force=False):
             "Invalid puzzle date."
         ) from exc
 
-    module_name = (
-        f"{config['prefix']}_{puzzle_date:%Y_%m_%d}"
-    )
+    destination = get_module_path(variant, puzzle_date)
 
-    directory = PUZZLE_ROOT / config["folder"]
-    directory.mkdir(parents=True, exist_ok=True)
+    destination.parent.mkdir(parents=True, exist_ok=True)
 
-    # Make sure the directory is importable.
-    init_file = directory / "__init__.py"
+    init_file = destination.parent / "__init__.py"
     init_file.touch(exist_ok=True)
-
-    destination = directory / f"{module_name}.py"
 
     if destination.exists() and not force:
         raise PuzzleMadnessImportError(
@@ -427,8 +459,15 @@ def write_module(data, url, difficulty, force=False):
 
     return destination
 
-def generate_month_urls(variant, difficulty, year, month):
-    """Generate PuzzleMadness URLs for every day in a month."""
+def generate_month_urls(
+    variant,
+    difficulty,
+    year,
+    month,
+    start_day=1,
+    end_day=None,
+):
+    """Generate PuzzleMadness URLs for a selected date range."""
 
     if variant not in SUPPORTED_VARIANTS:
         raise PuzzleMadnessImportError(
@@ -447,17 +486,22 @@ def generate_month_urls(variant, difficulty, year, month):
             f"Invalid year/month: {year}-{month}"
         ) from exc
 
-    urls = []
+    if end_day is None:
+        end_day = days_in_month
 
-    for day in range(1, days_in_month + 1):
-        url = (
+    if not (1 <= start_day <= end_day <= days_in_month):
+        raise PuzzleMadnessImportError(
+            f"Invalid day range: {start_day}-{end_day}. "
+            f"Month has {days_in_month} days."
+        )
+
+    return [
+        (
             f"{BASE_URL}/{variant}/{difficulty}/"
             f"{year}/{month}/{day}"
         )
-
-        urls.append(url)
-
-    return urls
+        for day in range(start_day, end_day + 1)
+    ]
 
 def import_puzzle(url, force=False):
     """Download, validate, and import one PuzzleMadness puzzle."""
@@ -534,54 +578,92 @@ def import_month(
     month,
     force=False,
     delay=1.0,
+    start_day=1,
+    end_day=None,
+    dry_run=False,
 ):
-    """Import every available puzzle for one variant and month."""
+    """Import PuzzleMadness puzzles for a selected month/day range."""
 
     urls = generate_month_urls(
         variant,
         difficulty,
         year,
         month,
+        start_day=start_day,
+        end_day=end_day,
     )
 
     imported = []
+    skipped = []
     failed = []
 
     print(
         f"\nImporting {variant} ({difficulty}) "
         f"for {year}-{month:02d}"
     )
+
+    if dry_run:
+        print("DRY RUN — No files will be written or downloaded.")
+
     print(f"Total dates: {len(urls)}\n")
 
     for index, url in enumerate(urls, start=1):
+        day = int(url.rstrip("/").split("/")[-1])
+        puzzle_date = date(year, month, day)
+
+        destination = get_module_path(
+            variant,
+            puzzle_date,
+        )
+
         print(
-            f"[{index}/{len(urls)}] {url}",
+            f"[{index}/{len(urls)}] {puzzle_date}",
             flush=True,
         )
 
+        # Check for existing puzzles before downloading.
+        if destination.exists() and not force:
+            skipped.append(destination)
+            print(f"  SKIPPED: {destination.name}")
+            continue
+
+        if dry_run:
+            print(f"  WOULD IMPORT: {destination.name}")
+            continue
+
+        # Respect the delay across month boundaries.
+        wait_for_request_slot(delay)
+
         try:
-            destination = import_puzzle(
+            imported_path = import_puzzle(
                 url,
                 force=force,
             )
 
-            imported.append(destination)
-            print(f"  OK: {destination.name}")
+            imported.append(imported_path)
+            print(f"  OK: {imported_path.name}")
 
         except PuzzleMadnessImportError as exc:
             failed.append((url, str(exc)))
             print(f"  FAILED: {exc}")
 
-        # Be polite to the website.
-        if index < len(urls):
-            time.sleep(delay)
-
     print("\n" + "=" * 60)
     print("IMPORT SUMMARY")
     print("=" * 60)
-    print(f"Imported: {len(imported)}")
-    print(f"Failed:   {len(failed)}")
-    print(f"Total:    {len(urls)}")
+    print(f"Imported:     {len(imported)}")
+    print(f"Skipped:      {len(skipped)}")
+    print(f"Failed:       {len(failed)}")
+
+    if dry_run:
+        would_import = (
+            len(urls)
+            - len(imported)
+            - len(skipped)
+            - len(failed)
+        )
+        print(f"Would import: {would_import}")
+
+    print(f"Total dates:  {len(urls)}")
 
     if failed:
         print("\nFailed puzzles:")
@@ -589,7 +671,65 @@ def import_month(
             print(f"  {url}")
             print(f"    {error}")
 
-    return imported, failed
+    return imported, skipped, failed
+
+def import_year(
+    variant,
+    difficulty,
+    year,
+    force=False,
+    delay=1.0,
+    dry_run=False,
+):
+    """Import every daily puzzle for a variant across an entire year."""
+
+    imported = []
+    skipped = []
+    failed = []
+
+    print("\n" + "=" * 60)
+    print(f"YEARLY IMPORT: {variant} ({difficulty}) — {year}")
+    print("=" * 60)
+
+    for month in range(1, 13):
+        month_imported, month_skipped, month_failed = import_month(
+            variant=variant,
+            difficulty=difficulty,
+            year=year,
+            month=month,
+            force=force,
+            delay=delay,
+            dry_run=dry_run,
+        )
+
+        imported.extend(month_imported)
+        skipped.extend(month_skipped)
+        failed.extend(month_failed)
+
+    print("\n" + "=" * 60)
+    print(f"YEARLY IMPORT SUMMARY — {year}")
+    print("=" * 60)
+    print(f"Imported: {len(imported)}")
+    print(f"Skipped:  {len(skipped)}")
+    print(f"Failed:   {len(failed)}")
+    total_dates = sum(
+        calendar.monthrange(year, month)[1]
+        for month in range(1, 13)
+    )
+
+    would_import = (
+        total_dates
+        - len(imported)
+        - len(skipped)
+        - len(failed)
+    )
+
+    if dry_run:
+        print(f"Would import: {would_import}")
+
+    print(f"Total dates:  {total_dates}")
+
+    return imported, skipped, failed
 
 def main(argv=None):
     parser = argparse.ArgumentParser(
@@ -626,6 +766,31 @@ def main(argv=None):
         type=int,
         help="Month for monthly imports",
     )
+    
+    parser.add_argument(
+        "--yearly",
+        action="store_true",
+        help="Import every month of the specified year",
+    )
+
+    parser.add_argument(
+    "--start-day",
+    type=int,
+    default=1,
+    help="First day to import (default: 1)",
+    )
+
+    parser.add_argument(
+        "--end-day",
+        type=int,
+        help="Last day to import (default: end of month)",
+    )
+
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Preview imports without downloading or writing files",
+    )
 
     parser.add_argument(
         "--delay",
@@ -655,32 +820,82 @@ def main(argv=None):
                     "Cannot combine a URL with monthly import options."
                 )
 
-            destination = import_puzzle(
-                args.url,
-                force=args.force,
-            )
+            parts = urlparse(args.url).path.strip("/").split("/")
 
-            print(f"Imported: {destination}")
+            if len(parts) != 5:
+                parser.error("Invalid PuzzleMadness URL.")
+
+            variant, difficulty, year, month, day = parts
+
+            try:
+                puzzle_date = date(int(year), int(month), int(day))
+                destination = get_module_path(variant, puzzle_date)
+            except (ValueError, PuzzleMadnessImportError) as exc:
+                parser.error(str(exc))
+
+            if destination.exists() and not args.force:
+                print(f"SKIPPED: Already imported: {destination}")
+
+            elif args.dry_run:
+                print(f"WOULD IMPORT: {destination}")
+
+            else:
+                destination = import_puzzle(
+                    args.url,
+                    force=args.force,
+                )
+                print(f"Imported: {destination}")
 
         else:
-            if (
-                args.variant is None
-                or args.year is None
-                or args.month is None
-            ):
+            if args.variant is None or args.year is None:
                 parser.error(
-                    "Provide a URL, or specify "
-                    "--variant, --year, and --month."
+                    "Provide a URL, or specify --variant and --year."
                 )
 
-            imported, failed = import_month(
-                variant=args.variant,
-                difficulty=args.difficulty,
-                year=args.year,
-                month=args.month,
-                force=args.force,
-                delay=args.delay,
-            )
+            if args.yearly:
+                if args.month is not None:
+                    parser.error(
+                        "--yearly cannot be combined with --month."
+                    )
+
+                if args.start_day != 1 or args.end_day is not None:
+                    parser.error(
+                        "--start-day and --end-day are only "
+                        "supported for monthly imports."
+                    )
+
+                imported, skipped, failed = import_year(
+                    variant=args.variant,
+                    difficulty=args.difficulty,
+                    year=args.year,
+                    force=args.force,
+                    delay=args.delay,
+                    dry_run=args.dry_run,
+                )
+
+            else:
+                if args.url and args.yearly:
+                    parser.error(
+                        "--yearly cannot be combined with a puzzle URL."
+                    )
+                    
+                if args.month is None:
+                    parser.error(
+                        "Specify --month for a monthly import, "
+                        "or --yearly for an entire year."
+                    )
+
+                imported, skipped, failed = import_month(
+                    variant=args.variant,
+                    difficulty=args.difficulty,
+                    year=args.year,
+                    month=args.month,
+                    force=args.force,
+                    delay=args.delay,
+                    start_day=args.start_day,
+                    end_day=args.end_day,
+                    dry_run=args.dry_run,
+                )
 
             if failed:
                 raise SystemExit(1)
