@@ -80,6 +80,8 @@ def render_puzzle(
     cell_size = 60
     grid_size = 9 * cell_size
     elements = []
+    clue_margin = 55
+    svg_size = grid_size + 2 * clue_margin
 
     def center(cell):
         r, c = cell
@@ -629,7 +631,7 @@ def render_puzzle(
         cell = constraint.variables[0]
         x, y = center(cell)
 
-        if constraint.parity == "odd":
+        if constraint.parity == "even":
             elements.append(
                 f'<circle class="parity-layer" '
                 f'cx="{x}" cy="{y}" r="19" '
@@ -877,64 +879,156 @@ def render_puzzle(
     for constraint in little_killers:
         cells = list(constraint.variables)
 
-        points = [center(cell) for cell in cells]
+        if not cells:
+            continue
 
-        if len(points) > 1:
-            path = " ".join(
-                f"{x},{y}" for x, y in points
-            )
+        clue_position = getattr(
+            constraint, "clue_position", None
+        )
 
-            elements.append(
-                f'<polyline class="little-killer-layer" '
-                f'points="{path}" fill="none" '
-                'stroke="#b45309" stroke-width="2.5" '
-                'stroke-opacity="0.8" '
-                'stroke-linecap="round"/>'
-            )
+        if clue_position is not None:
+            diagonal_type, position, edge = clue_position
 
-            # Arrowhead at the far end of the diagonal.
-            tip_x, tip_y = points[-1]
-            prev_x, prev_y = points[-2]
+            # Original PuzzleMadness clue positions.
+            # Position is measured along the grid edge.
+            #
+            # 0 = top, 1 = right, 2 = bottom, 3 = left.
 
-            angle = math.atan2(tip_y - prev_y, tip_x - prev_x)
-            spread = math.radians(150)
+            if edge == 0:
+                anchor_x = (position + 0.5) * cell_size
+                anchor_y = 0
 
-            wings = [
-                (
-                    tip_x + 11 * math.cos(angle + sign * spread),
-                    tip_y + 11 * math.sin(angle + sign * spread),
-                )
-                for sign in (1, -1)
-            ]
+            elif edge == 1:
+                anchor_x = grid_size
+                anchor_y = (position + 0.5) * cell_size
 
-            elements.append(
-                f'<polyline class="little-killer-layer" '
-                f'points="{wings[0][0]:.1f},{wings[0][1]:.1f} '
-                f'{tip_x},{tip_y} '
-                f'{wings[1][0]:.1f},{wings[1][1]:.1f}" '
-                'fill="none" stroke="#b45309" '
-                'stroke-width="2.5" stroke-opacity="0.8" '
-                'stroke-linecap="round" '
-                'stroke-linejoin="round"/>'
-            )
+            elif edge == 2:
+                anchor_x = (position + 0.5) * cell_size
+                anchor_y = grid_size
 
-            step_r = cells[1][0] - cells[0][0]
-            step_c = cells[1][1] - cells[0][1]
+            else:
+                anchor_x = 0
+                anchor_y = (position + 0.5) * cell_size
+
+            directions = {
+                (0, 0): (1, 1),
+                (1, 0): (1, -1),
+                (0, 1): (1, -1),
+                (1, 1): (-1, -1),
+                (0, 2): (-1, 1),
+                (1, 2): (-1, -1),
+                (0, 3): (1, 1),
+                (1, 3): (-1, 1),
+            }
+
+            step_r, step_c = directions[(diagonal_type, edge)]
 
         else:
-            step_r, step_c = 1, 1
+            # Fallback for manually created Little Killer clues.
+            first_r, first_c = cells[0]
 
-        # Sum clue at the diagonal's entry corner.
-        x0, y0 = points[0]
-        text_x = x0 - step_c * 19
-        text_y = y0 - step_r * 19
+            if len(cells) > 1:
+                step_r = cells[1][0] - first_r
+                step_c = cells[1][1] - first_c
+            else:
+                step_r, step_c = 1, 1
+
+            if first_r == 0 and step_r == 1:
+                edge = 0
+            elif first_r == 8 and step_r == -1:
+                edge = 2
+            elif first_c == 0 and step_c == 1:
+                edge = 3
+            else:
+                edge = 1
+
+            if edge == 0:
+                anchor_x = (first_c + 0.5) * cell_size
+                anchor_y = 0
+            elif edge == 1:
+                anchor_x = grid_size
+                anchor_y = (first_r + 0.5) * cell_size
+            elif edge == 2:
+                anchor_x = (first_c + 0.5) * cell_size
+                anchor_y = grid_size
+            else:
+                anchor_x = 0
+                anchor_y = (first_r + 0.5) * cell_size
+
+        # Move the arrow outside the grid.
+        margin = 18
+
+        if edge == 0:
+            arrow_x = anchor_x
+            arrow_y = anchor_y - margin
+        elif edge == 1:
+            arrow_x = anchor_x + margin
+            arrow_y = anchor_y
+        elif edge == 2:
+            arrow_x = anchor_x
+            arrow_y = anchor_y + margin
+        else:
+            arrow_x = anchor_x - margin
+            arrow_y = anchor_y
+
+        # Short diagonal arrow.
+        arrow_length = 16
+
+        end_x = arrow_x + step_c * arrow_length
+        end_y = arrow_y + step_r * arrow_length
+
+        elements.append(
+            f'<line class="little-killer-layer" '
+            f'x1="{arrow_x:.1f}" y1="{arrow_y:.1f}" '
+            f'x2="{end_x:.1f}" y2="{end_y:.1f}" '
+            'stroke="currentColor" stroke-width="1.5" '
+            'stroke-linecap="round"/>'
+        )
+
+        angle = math.atan2(step_r, step_c)
+        spread = math.radians(150)
+
+        wings = [
+            (
+                end_x + 7 * math.cos(angle + sign * spread),
+                end_y + 7 * math.sin(angle + sign * spread),
+            )
+            for sign in (1, -1)
+        ]
+
+        elements.append(
+            f'<polyline class="little-killer-layer" '
+            f'points="{wings[0][0]:.1f},{wings[0][1]:.1f} '
+            f'{end_x:.1f},{end_y:.1f} '
+            f'{wings[1][0]:.1f},{wings[1][1]:.1f}" '
+            'fill="none" stroke="currentColor" '
+            'stroke-width="2" stroke-linecap="round" '
+            'stroke-linejoin="round"/>'
+        )
+
+        # Position the sum outside the arrow.
+        if edge == 0:  # Top
+            text_x = arrow_x - step_c * 22
+            text_y = arrow_y - 17
+
+        elif edge == 2:  # Bottom
+            text_x = arrow_x - step_c * 22
+            text_y = arrow_y + 31
+
+        elif edge == 3:  # Left
+            text_x = arrow_x - 34
+            text_y = arrow_y + 8
+
+        else:  # Right
+            text_x = arrow_x + 34
+            text_y = arrow_y + 8
 
         elements.append(
             f'<text class="little-killer-layer" '
-            f'x="{text_x}" y="{text_y + 4}" '
+            f'x="{text_x:.1f}" y="{text_y:.1f}" '
             'text-anchor="middle" '
-            'font-size="13" font-weight="700" '
-            f'fill="#b45309">{constraint.target_sum}</text>'
+            'font-size="26" font-weight="500" '
+            f'fill="currentColor">{constraint.target_sum}</text>'
         )
 
     # Layer 6: Killer cages
@@ -1412,8 +1506,8 @@ def render_puzzle(
 
 <div class="layout">
     <div class="panel">
-        <svg viewBox="0 0 540 540"
-             xmlns="http://www.w3.org/2000/svg">
+        <svg viewBox="-70 -70 680 680"
+            xmlns="http://www.w3.org/2000/svg">
             {svg}
         </svg>
 

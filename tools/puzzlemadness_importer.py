@@ -31,29 +31,95 @@ SUPPORTED_VARIANTS = {
         "prefix": "anti_knight",
         "name": "Anti-Knight Sudoku",
     },
+    "arrowsudoku": {
+        "folder": "arrow",
+        "prefix": "arrow",
+        "name": "Arrow Sudoku",
+    },
+    "betweenlinesudoku": {
+        "folder": "between_line",
+        "prefix": "between_line",
+        "name": "Between Lines Sudoku",
+    },
+    "xsudoku": {
+        "folder": "diagonal",
+        "prefix": "diagonal",
+        "name": "Diagonal Sudoku",
+    },
+    "germanwhisperlinesudoku": {
+        "folder": "german_whisper",
+        "prefix": "german_whisper",
+        "name": "German Whispers Sudoku",
+    },
+    "greaterthansudoku": {
+        "folder": "inequality",
+        "prefix": "inequality",
+        "name": "Inequality Sudoku",
+    },
     "killersudoku": {
         "folder": "killer",
         "prefix": "killer",
         "name": "Killer Sudoku",
     },
-    "arrowsudoku": {
-        "folder": "arrow",
-        "prefix": "arrow",
-        "name": "Arrow Sudoku",
+    "kropkisudoku": {
+        "folder": "kropki",
+        "prefix": "kropki",
+        "name": "Kropki Sudoku",
+    },
+    "littlekillersudoku": {
+        "folder": "little_killer",
+        "prefix": "little_killer",
+        "name": "Little Killer Sudoku",
+    },
+    "oddevensudoku": {
+        "folder": "odd_even",
+        "prefix": "odd_even",
+        "name": "Odd/Even Sudoku",
+    },
+    "palindromelinesudoku": {
+        "folder": "palindrome",
+        "prefix": "palindrome",
+        "name": "Palindrome Sudoku",
+    },
+    "renbansudoku": {
+        "folder": "renban",
+        "prefix": "renban",
+        "name": "Renban Sudoku",
+    },
+    "sudoku": {
+        "folder": "standard",
+        "prefix": "standard",
+        "name": "Standard Sudoku",
     },
     "thermosudoku": {
         "folder": "thermo",
         "prefix": "thermo",
         "name": "Thermometer Sudoku",
     },
+    "sudokuxv": {
+        "folder": "xv",
+        "prefix": "xv",
+        "name": "X/V Sudoku",
+    },
 }
 
 EXPECTED_RULESETS = {
     "antikingsudoku": {"AntiKing"},
     "antiknightsudoku": {"AntiKnight"},
-    "killersudoku": {"KillerClues"},
     "arrowsudoku": {"Arrow"},
+    "betweenlinesudoku": {"BetweenLine"},
+    "xsudoku": set(),
+    "germanwhisperlinesudoku": {"GermanWhisperLine"},
+    "greaterthansudoku": {"GreaterThan"},
+    "killersudoku": {"KillerClues"},
+    "kropkisudoku": {"Kropki"},
+    "littlekillersudoku": {"LittleKiller"},
+    "oddevensudoku": {"OddEven"},
+    "palindromelinesudoku": {"PalindromeLine"},
+    "renbansudoku": {"RenbanLine"},
+    "sudoku": set(),
     "thermosudoku": {"Thermo"},
+    "sudokuxv": {"XV"},
 }
 
 
@@ -148,17 +214,47 @@ def validate_puzzle_data(data):
             "Nonstandard Sudoku regions are not supported yet."
         )
 
-    if data.get("extraRegions"):
+    extra_regions = data.get("extraRegions", [])
+
+    if variant == "xsudoku":
+        if not isinstance(extra_regions, list):
+            raise PuzzleMadnessImportError(
+                "Expected extraRegions to be a list."
+            )
+
+    elif extra_regions:
         raise PuzzleMadnessImportError(
-            "Extra regions are not supported yet."
+            f"Unexpected extraRegions for {variant}."
         )
 
-    rulesets = data.get("rulesets")
+    rulesets = data.get("rulesets", [])
 
     if not isinstance(rulesets, list):
         raise PuzzleMadnessImportError(
-            "Missing or invalid rulesets."
+            "Expected rulesets to be a list."
         )
+
+    variant = data["baseURI"]
+    expected = EXPECTED_RULESETS[variant]
+
+    if variant in {"sudoku", "xsudoku"}:
+        if rulesets:
+            raise PuzzleMadnessImportError(
+                "Standard Sudoku must not have extra rulesets."
+            )
+    else:
+        if len(rulesets) != 1:
+            raise PuzzleMadnessImportError(
+                f"Expected exactly one ruleset for {variant}."
+            )
+
+        rule_type = rulesets[0].get("type")
+
+        if rule_type not in expected:
+            raise PuzzleMadnessImportError(
+                f"Unexpected ruleset {rule_type!r} "
+                f"for {variant}."
+            )
 
     actual_types = [
         rule.get("type")
@@ -209,7 +305,6 @@ def cell_coordinates(index):
 
     return divmod(index, 9)
 
-
 def convert_cell_path(indices):
     """Convert a sequence of flat indices into coordinates."""
 
@@ -220,12 +315,175 @@ def convert_cell_path(indices):
 
     return [cell_coordinates(index) for index in indices]
 
+def convert_inequalities(rule_data):
+    if not isinstance(rule_data, dict):
+        raise PuzzleMadnessImportError(
+            "Expected GreaterThan data to be a dictionary."
+        )
+
+    horizontal = rule_data.get("horizontal")
+    vertical = rule_data.get("vertical")
+
+    if not isinstance(horizontal, list) or len(horizontal) != 72:
+        raise PuzzleMadnessImportError(
+            "GreaterThan horizontal data must contain 72 entries."
+        )
+
+    if not isinstance(vertical, list) or len(vertical) != 72:
+        raise PuzzleMadnessImportError(
+            "GreaterThan vertical data must contain 72 entries."
+        )
+
+    if any(type(value) is not int or value not in (0, 1, 2)
+           for value in horizontal + vertical):
+        raise PuzzleMadnessImportError(
+            "GreaterThan values must be 0, 1, or 2."
+        )
+
+    inequalities = []
+
+    # Horizontal: 9 rows, 8 gaps per row.
+    for index, value in enumerate(horizontal):
+        if value == 0:
+            continue
+
+        row, col = divmod(index, 8)
+
+        left = (row, col)
+        right = (row, col + 1)
+
+        inequalities.append((left, right, value))
+
+    # Vertical: 8 gaps between rows, 9 columns.
+    for index, value in enumerate(vertical):
+        if value == 0:
+            continue
+
+        row, col = divmod(index, 9)
+
+        top = (row, col)
+        bottom = (row + 1, col)
+
+        inequalities.append((top, bottom, value))
+
+    return inequalities
+
+def trace_little_killer_diagonal(start_row, start_col, dr, dc):
+    cells = []
+
+    row = start_row
+    col = start_col
+
+    while 0 <= row < 9 and 0 <= col < 9:
+        cells.append((row, col))
+
+        row += dr
+        col += dc
+
+    return cells
+
+def convert_little_killer_clue(diagonal_type, position, edge):
+    if type(diagonal_type) is not int or diagonal_type not in (0, 1):
+        raise PuzzleMadnessImportError(
+            f"Invalid Little Killer diagonal type: {diagonal_type!r}"
+        )
+
+    if type(position) is not int or not 1 <= position <= 9:
+        raise PuzzleMadnessImportError(
+            f"Invalid Little Killer position: {position!r}"
+        )
+
+    if type(edge) is not int or edge not in (0, 1, 2, 3):
+        raise PuzzleMadnessImportError(
+            f"Invalid Little Killer edge: {edge!r}"
+        )
+
+    # PuzzleMadness positions clues at cell boundaries.
+    # The diagonal type determines which side of
+    # the boundary the first cell occupies.
+    index = (
+        position + 1
+        if diagonal_type == 0
+        else position - 1
+    )
+
+    if edge == 0:  # Top
+        start = (0, index)
+        direction = (
+            (1, 1) if diagonal_type == 0
+            else (1, -1)
+        )
+
+    elif edge == 1:  # Right
+        start = (index, 8)
+        direction = (
+            (1, -1) if diagonal_type == 0
+            else (-1, -1)
+        )
+
+    elif edge == 2:  # Bottom
+        start = (8, index)
+        direction = (
+            (-1, 1) if diagonal_type == 0
+            else (-1, -1)
+        )
+
+    else:  # Left
+        start = (index, 0)
+        direction = (
+            (1, 1) if diagonal_type == 0
+            else (-1, 1)
+        )
+
+    row, col = start
+
+    if not (0 <= row < 9 and 0 <= col < 9):
+        raise PuzzleMadnessImportError(
+            f"Little Killer clue starts outside the grid: "
+            f"{start}, clue={(diagonal_type, position, edge)}"
+        )
+
+    return trace_little_killer_diagonal(
+        row, col, *direction
+    )
+    
+def validate_little_killer_sum(cells, target_sum, starting_grid):
+    given_sum = sum(
+        starting_grid[row * 9 + col]
+        for row, col in cells
+    )
+
+    empty_cells = sum(
+        starting_grid[row * 9 + col] == 0
+        for row, col in cells
+    )
+
+    minimum = given_sum + empty_cells
+    maximum = given_sum + 9 * empty_cells
+
+    if not minimum <= target_sum <= maximum:
+        raise PuzzleMadnessImportError(
+            f"Little Killer sum {target_sum} is impossible "
+            f"for cells {cells}. "
+            f"Given sum: {given_sum}, "
+            f"empty cells: {empty_cells}."
+        )
+        
 def generate_constraint_code(data):
     """Generate Python code for supported variant constraints."""
 
     variant = data["baseURI"]
-    ruleset = data["rulesets"][0]
-    rule_data = ruleset["data"]
+
+    if variant == "sudoku":
+        return []
+
+    if variant == "xsudoku":
+        return [
+            "    puzzle.add_diagonal_constraints()"
+        ]
+        
+    rulesets = data["rulesets"]
+    rule_data = rulesets[0]["data"]
 
     lines = []
 
@@ -245,6 +503,100 @@ def generate_constraint_code(data):
 
         lines.append("    puzzle.add_anti_knight_constraints()")
     
+    elif variant == "arrowsudoku":
+            if not isinstance(rule_data, list):
+                raise PuzzleMadnessImportError(
+                    "Invalid Arrow data."
+                )
+    
+            for indices in rule_data:
+                cells = convert_cell_path(indices)
+    
+                if len(cells) < 2 or len(set(cells)) != len(cells):
+                    raise PuzzleMadnessImportError(
+                        f"Invalid arrow path: {indices!r}"
+                    )
+    
+                circle = [cells[0]]
+                path = cells[1:]
+    
+                lines.append(
+                    f"    puzzle.add_arrow({circle!r}, {path!r})"
+                )
+    
+    elif variant == "betweenlinesudoku":
+        if not isinstance(rule_data, list):
+            raise PuzzleMadnessImportError(
+                "Expected BetweenLine data to be a list."
+            )
+
+        for line_indices in rule_data:
+            if not isinstance(line_indices, list):
+                raise PuzzleMadnessImportError(
+                    "Each Between Line must be a list of cell indices."
+                )
+
+            if len(line_indices) < 3:
+                raise PuzzleMadnessImportError(
+                    "Between Lines must contain at least "
+                    "two endpoints and one interior cell."
+                )
+
+            cells = convert_cell_path(line_indices)
+
+            if len(set(cells)) != len(cells):
+                raise PuzzleMadnessImportError(
+                    "Between Line contains duplicate cells."
+                )
+
+            lines.append(
+                f"    puzzle.add_between_line({cells!r})"
+            )
+            
+    elif variant == "germanwhisperlinesudoku":
+        if not isinstance(rule_data, list):
+            raise PuzzleMadnessImportError(
+                "Expected GermanWhisperLine data to be a list."
+            )
+
+        for line_indices in rule_data:
+            if not isinstance(line_indices, list):
+                raise PuzzleMadnessImportError(
+                    "Each German Whispers line must be a list."
+                )
+
+            if len(line_indices) < 2:
+                raise PuzzleMadnessImportError(
+                    "German Whispers lines must contain "
+                    "at least two cells."
+                )
+
+            cells = convert_cell_path(line_indices)
+
+            if len(set(cells)) != len(cells):
+                raise PuzzleMadnessImportError(
+                    "German Whispers line contains duplicate cells."
+                )
+
+            lines.append(
+                f"    puzzle.add_german_whispers({cells!r})"
+            )
+            
+    elif variant == "greaterthansudoku":
+        inequalities = convert_inequalities(rule_data)
+
+        for first, second, direction in inequalities:
+            # Direction mapping must match PuzzleMadness.
+            if direction == 1:
+                operator = ">"
+            else:
+                operator = "<"
+
+            lines.append(
+                f"    puzzle.add_inequality("
+                f"{first!r}, {second!r}, {operator!r})"
+            )
+            
     elif variant == "killersudoku":
         if not isinstance(rule_data, dict):
             raise PuzzleMadnessImportError(
@@ -292,27 +644,215 @@ def generate_constraint_code(data):
                 f"    puzzle.add_killer_cage({cells!r}, {target})"
             )
 
-    elif variant == "arrowsudoku":
+    elif variant == "kropkisudoku":
         if not isinstance(rule_data, list):
             raise PuzzleMadnessImportError(
-                "Invalid Arrow data."
+                "Expected Kropki data to be a list."
             )
 
-        for indices in rule_data:
-            cells = convert_cell_path(indices)
+        dot_types = {
+            0: "black",
+            1: "white",
+        }
 
-            if len(cells) < 2 or len(set(cells)) != len(cells):
+        seen_pairs = set()
+
+        for dot_data in rule_data:
+            if not isinstance(dot_data, list) or len(dot_data) != 3:
                 raise PuzzleMadnessImportError(
-                    f"Invalid arrow path: {indices!r}"
+                    "Each Kropki dot must contain "
+                    "[cell_a, cell_b, dot_type]."
                 )
 
-            circle = [cells[0]]
-            path = cells[1:]
+            index_a, index_b, dot_code = dot_data
+
+            if type(dot_code) is not int or dot_code not in dot_types:
+                raise PuzzleMadnessImportError(
+                    f"Invalid Kropki dot type: {dot_code!r}"
+                )
+
+            cell_a = cell_coordinates(index_a)
+            cell_b = cell_coordinates(index_b)
+
+            dr = abs(cell_a[0] - cell_b[0])
+            dc = abs(cell_a[1] - cell_b[1])
+
+            if dr + dc != 1:
+                raise PuzzleMadnessImportError(
+                    "Kropki dots must connect "
+                    "orthogonally adjacent cells."
+                )
+
+            pair = tuple(sorted((cell_a, cell_b)))
+
+            if pair in seen_pairs:
+                raise PuzzleMadnessImportError(
+                    f"Duplicate Kropki dot between "
+                    f"{cell_a} and {cell_b}."
+                )
+
+            seen_pairs.add(pair)
+
+            dot_type = dot_types[dot_code]
 
             lines.append(
-                f"    puzzle.add_arrow({circle!r}, {path!r})"
+                f"    puzzle.add_kropki_dot("
+                f"{cell_a!r}, {cell_b!r}, {dot_type!r})"
+            )
+    
+    elif variant == "littlekillersudoku":
+        if not isinstance(rule_data, list):
+            raise PuzzleMadnessImportError(
+                "Expected LittleKiller data to be a list."
             )
 
+        for clue in rule_data:
+            if not isinstance(clue, list) or len(clue) != 4:
+                raise PuzzleMadnessImportError(
+                    "Each Little Killer clue must contain "
+                    "[diagonal_type, position, edge, target_sum]."
+                )
+
+            diagonal_type, position, edge, target_sum = clue
+
+            if type(target_sum) is not int or target_sum <= 0:
+                raise PuzzleMadnessImportError(
+                    f"Invalid Little Killer sum: {target_sum!r}"
+                )
+
+            cells = convert_little_killer_clue(
+                diagonal_type, position, edge
+            )
+            
+            validate_little_killer_sum(
+                cells,
+                target_sum,
+                data["startingGrid"]
+            )
+
+            if not len(cells) <= target_sum <= 9 * len(cells):
+                raise PuzzleMadnessImportError(
+                    f"Impossible Little Killer sum {target_sum} "
+                    f"for {len(cells)} cells."
+                )
+
+            lines.append(
+                f"    puzzle.add_little_killer("
+                f"{cells!r}, {target_sum}, "
+                f"clue_position={(diagonal_type, position, edge)!r})"
+            )
+    
+    elif variant == "oddevensudoku":
+        if not isinstance(rule_data, list) or len(rule_data) != 81:
+            raise PuzzleMadnessImportError(
+                "OddEven data must contain exactly 81 values."
+            )
+
+        if any(
+            type(value) is not int or value not in (0, 1)
+            for value in rule_data
+        ):
+            raise PuzzleMadnessImportError(
+                "OddEven values must be 0 (odd) or 1 (even)."
+            )
+
+        for index, value in enumerate(rule_data):
+            cell = cell_coordinates(index)
+
+            if value == 1:
+                lines.append(
+                    f"    puzzle.add_even_cell({cell!r})"
+                )
+            else:
+                lines.append(
+                    f"    puzzle.add_odd_cell({cell!r})"
+                )
+        
+        for index, value in enumerate(rule_data):
+            given = data["startingGrid"][index]
+
+            if given != 0 and (given % 2 == 0) != (value == 1):
+                raise PuzzleMadnessImportError(
+                    f"Parity mismatch at {cell_coordinates(index)}: "
+                    f"given {given}, parity code {value}."
+                )
+    
+    elif variant == "palindromelinesudoku":
+        if not isinstance(rule_data, list):
+            raise PuzzleMadnessImportError(
+                "Expected PalindromeLine data to be a list."
+            )
+
+        for line_indices in rule_data:
+            if not isinstance(line_indices, list):
+                raise PuzzleMadnessImportError(
+                    "Each Palindrome line must be a list."
+                )
+
+            if len(line_indices) < 2:
+                raise PuzzleMadnessImportError(
+                    "Palindrome lines must contain at least two cells."
+                )
+
+            cells = convert_cell_path(line_indices)
+
+            if len(set(cells)) != len(cells):
+                raise PuzzleMadnessImportError(
+                    "Palindrome line contains duplicate cells."
+                )
+
+            for a, b in zip(cells, cells[1:]):
+                dr = abs(a[0] - b[0])
+                dc = abs(a[1] - b[1])
+
+                if max(dr, dc) != 1:
+                    raise PuzzleMadnessImportError(
+                        "Palindrome line contains "
+                        "nonadjacent cells."
+                    )
+
+            lines.append(
+                f"    puzzle.add_palindrome({cells!r})"
+            )
+    
+    elif variant == "renbansudoku":
+        if not isinstance(rule_data, list):
+            raise PuzzleMadnessImportError(
+                "Expected RenbanLine data to be a list."
+            )
+
+        for line_indices in rule_data:
+            if not isinstance(line_indices, list):
+                raise PuzzleMadnessImportError(
+                    "Each Renban line must be a list."
+                )
+
+            if not 2 <= len(line_indices) <= 9:
+                raise PuzzleMadnessImportError(
+                    "Renban lines must contain between "
+                    "2 and 9 cells."
+                )
+
+            cells = convert_cell_path(line_indices)
+
+            if len(set(cells)) != len(cells):
+                raise PuzzleMadnessImportError(
+                    "Renban line contains duplicate cells."
+                )
+
+            for a, b in zip(cells, cells[1:]):
+                dr = abs(a[0] - b[0])
+                dc = abs(a[1] - b[1])
+
+                if max(dr, dc) != 1:
+                    raise PuzzleMadnessImportError(
+                        "Renban line contains nonadjacent cells."
+                    )
+
+            lines.append(
+                f"    puzzle.add_renban({cells!r})"
+            )
+            
     elif variant == "thermosudoku":
         if not isinstance(rule_data, list):
             raise PuzzleMadnessImportError(
@@ -334,6 +874,64 @@ def generate_constraint_code(data):
 
             lines.append(
                 f"    puzzle.add_thermometer({cells!r})"
+            )
+    
+    elif variant == "sudokuxv":
+        if not isinstance(rule_data, list):
+            raise PuzzleMadnessImportError(
+                "Expected XV data to be a list."
+            )
+
+        markers = {
+            5: "V",
+            10: "X",
+        }
+
+        seen_pairs = set()
+
+        for marker_data in rule_data:
+            if not isinstance(marker_data, list) or len(marker_data) != 3:
+                raise PuzzleMadnessImportError(
+                    "Each XV marker must contain "
+                    "[cell_a, cell_b, target_sum]."
+                )
+
+            index_a, index_b, target_sum = marker_data
+
+            if type(target_sum) is not int or target_sum not in markers:
+                raise PuzzleMadnessImportError(
+                    f"Invalid XV target sum: {target_sum!r}"
+                )
+
+            cell_a = cell_coordinates(index_a)
+            cell_b = cell_coordinates(index_b)
+
+            # XV markers must connect orthogonally adjacent cells.
+            dr = abs(cell_a[0] - cell_b[0])
+            dc = abs(cell_a[1] - cell_b[1])
+
+            if dr + dc != 1:
+                raise PuzzleMadnessImportError(
+                    "XV markers must connect "
+                    "orthogonally adjacent cells."
+                )
+
+            # Prevent duplicate or conflicting markers.
+            pair = tuple(sorted((cell_a, cell_b)))
+
+            if pair in seen_pairs:
+                raise PuzzleMadnessImportError(
+                    f"Duplicate XV marker between "
+                    f"{cell_a} and {cell_b}."
+                )
+
+            seen_pairs.add(pair)
+
+            marker = markers[target_sum]
+
+            lines.append(
+                f"    puzzle.add_xv("
+                f"{cell_a!r}, {cell_b!r}, {marker!r})"
             )
 
     return lines

@@ -258,7 +258,6 @@ class SudokuPuzzle:
             GermanWhispersConstraint(cells)
         )
 
-
     def add_renban(self, cells):
         """
         Add a Renban line.
@@ -298,7 +297,6 @@ class SudokuPuzzle:
         self.add_constraint(
             RenbanConstraint(cells)
         )
-
 
     def add_palindrome(self, cells):
         """
@@ -746,7 +744,12 @@ class SudokuPuzzle:
 
         return cells
 
-    def add_little_killer(self, cells, target_sum):
+    def add_little_killer(
+        self,
+        cells,
+        target_sum,
+        clue_position=None,
+    ):
         """
         Add a Little Killer diagonal clue.
 
@@ -781,9 +784,12 @@ class SudokuPuzzle:
                     "diagonally adjacent."
                 )
 
-        self.add_constraint(
-            LittleKillerConstraint(cells, target_sum)
-        )
+        constraint = LittleKillerConstraint(cells, target_sum)
+
+        # Optional display metadata. Does not affect solving.
+        constraint.clue_position = clue_position
+
+        self.add_constraint(constraint)
 
 
     def add_constraint(self, constraint):
