@@ -4,10 +4,13 @@ import argparse
 import json
 import re
 import urllib.request
+from urllib.parse import urlparse
 
 from pathlib import Path
 from collections import defaultdict
 from datetime import date
+import calendar
+import time
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -409,69 +412,265 @@ def write_module(data, url, difficulty, force=False):
 
     return destination
 
+def generate_month_urls(variant, difficulty, year, month):
+    """Generate PuzzleMadness URLs for every day in a month."""
+
+    if variant not in SUPPORTED_VARIANTS:
+        raise PuzzleMadnessImportError(
+            f"Unsupported variant: {variant}"
+        )
+
+    if difficulty not in {"easy", "medium", "hard", "tough"}:
+        raise PuzzleMadnessImportError(
+            f"Unsupported difficulty: {difficulty}"
+        )
+
+    try:
+        days_in_month = calendar.monthrange(year, month)[1]
+    except (ValueError, calendar.IllegalMonthError) as exc:
+        raise PuzzleMadnessImportError(
+            f"Invalid year/month: {year}-{month}"
+        ) from exc
+
+    urls = []
+
+    for day in range(1, days_in_month + 1):
+        url = (
+            f"{BASE_URL}/{variant}/{difficulty}/"
+            f"{year}/{month}/{day}"
+        )
+
+        urls.append(url)
+
+    return urls
+
+def import_puzzle(url, force=False):
+    """Download, validate, and import one PuzzleMadness puzzle."""
+
+    parts = urlparse(url).path.strip("/").split("/")
+
+    if len(parts) != 5:
+        raise PuzzleMadnessImportError(
+            "Expected URL format: "
+            "/variant/difficulty/year/month/day"
+        )
+
+    variant, difficulty, year, month, day = parts
+
+    if variant not in SUPPORTED_VARIANTS:
+        raise PuzzleMadnessImportError(
+            f"Unsupported variant: {variant}"
+        )
+
+    try:
+        requested_date = date(
+            int(year),
+            int(month),
+            int(day),
+        )
+    except ValueError as exc:
+        raise PuzzleMadnessImportError(
+            f"Invalid puzzle date in URL: {url}"
+        ) from exc
+
+    html = fetch_page(url)
+    data = extract_puzzle_data(html)
+
+    if data.get("baseURI") != variant:
+        raise PuzzleMadnessImportError(
+            "URL variant does not match puzzle data."
+        )
+
+    source = data.get("source")
+
+    if not isinstance(source, dict):
+        raise PuzzleMadnessImportError(
+            "Missing puzzle source information."
+        )
+
+    try:
+        actual_date = date(
+            source["year"],
+            source["month"],
+            source["day"],
+        )
+    except (KeyError, TypeError, ValueError) as exc:
+        raise PuzzleMadnessImportError(
+            "Invalid source date."
+        ) from exc
+
+    if actual_date != requested_date:
+        raise PuzzleMadnessImportError(
+            f"Date mismatch: requested {requested_date}, "
+            f"received {actual_date}"
+        )
+
+    return write_module(
+        data,
+        url,
+        difficulty,
+        force=force,
+    )
+
+def import_month(
+    variant,
+    difficulty,
+    year,
+    month,
+    force=False,
+    delay=1.0,
+):
+    """Import every available puzzle for one variant and month."""
+
+    urls = generate_month_urls(
+        variant,
+        difficulty,
+        year,
+        month,
+    )
+
+    imported = []
+    failed = []
+
+    print(
+        f"\nImporting {variant} ({difficulty}) "
+        f"for {year}-{month:02d}"
+    )
+    print(f"Total dates: {len(urls)}\n")
+
+    for index, url in enumerate(urls, start=1):
+        print(
+            f"[{index}/{len(urls)}] {url}",
+            flush=True,
+        )
+
+        try:
+            destination = import_puzzle(
+                url,
+                force=force,
+            )
+
+            imported.append(destination)
+            print(f"  OK: {destination.name}")
+
+        except PuzzleMadnessImportError as exc:
+            failed.append((url, str(exc)))
+            print(f"  FAILED: {exc}")
+
+        # Be polite to the website.
+        if index < len(urls):
+            time.sleep(delay)
+
+    print("\n" + "=" * 60)
+    print("IMPORT SUMMARY")
+    print("=" * 60)
+    print(f"Imported: {len(imported)}")
+    print(f"Failed:   {len(failed)}")
+    print(f"Total:    {len(urls)}")
+
+    if failed:
+        print("\nFailed puzzles:")
+        for url, error in failed:
+            print(f"  {url}")
+            print(f"    {error}")
+
+    return imported, failed
+
 def main(argv=None):
     parser = argparse.ArgumentParser(
-        description="Import a PuzzleMadness Sudoku puzzle."
+        description="Import PuzzleMadness Sudoku puzzles."
     )
 
     parser.add_argument(
         "url",
-        help="PuzzleMadness puzzle URL",
+        nargs="?",
+        help="Import one puzzle using its URL",
+    )
+
+    parser.add_argument(
+        "--variant",
+        choices=sorted(SUPPORTED_VARIANTS),
+        help="Puzzle variant for monthly imports",
+    )
+
+    parser.add_argument(
+        "--difficulty",
+        default="hard",
+        choices=["easy", "medium", "hard", "tough"],
+        help="Puzzle difficulty (default: hard)",
+    )
+
+    parser.add_argument(
+        "--year",
+        type=int,
+        help="Year for monthly imports",
+    )
+
+    parser.add_argument(
+        "--month",
+        type=int,
+        help="Month for monthly imports",
+    )
+
+    parser.add_argument(
+        "--delay",
+        type=float,
+        default=1.0,
+        help="Delay between requests in seconds (default: 1.0)",
     )
 
     parser.add_argument(
         "--force",
         action="store_true",
-        help="Overwrite an existing puzzle module",
+        help="Overwrite existing puzzle modules",
     )
 
     args = parser.parse_args(argv)
 
+    if args.delay < 0:
+        parser.error("--delay cannot be negative")
+
     try:
-        html = fetch_page(args.url)
-        data = extract_puzzle_data(html)
+        if args.url:
+            if any(
+                value is not None
+                for value in (args.variant, args.year, args.month)
+            ):
+                parser.error(
+                    "Cannot combine a URL with monthly import options."
+                )
 
-        # Parse difficulty from the URL.
-        from urllib.parse import urlparse
-
-        parts = urlparse(args.url).path.strip("/").split("/")
-
-        if len(parts) != 5:
-            raise PuzzleMadnessImportError(
-                "Expected URL format: /variant/difficulty/year/month/day"
+            destination = import_puzzle(
+                args.url,
+                force=args.force,
             )
 
-        variant, difficulty, year, month, day = parts
+            print(f"Imported: {destination}")
 
-        if variant != data.get("baseURI"):
-            raise PuzzleMadnessImportError(
-                "URL variant does not match puzzle data."
+        else:
+            if (
+                args.variant is None
+                or args.year is None
+                or args.month is None
+            ):
+                parser.error(
+                    "Provide a URL, or specify "
+                    "--variant, --year, and --month."
+                )
+
+            imported, failed = import_month(
+                variant=args.variant,
+                difficulty=args.difficulty,
+                year=args.year,
+                month=args.month,
+                force=args.force,
+                delay=args.delay,
             )
 
-        source = data.get("source", {})
+            if failed:
+                raise SystemExit(1)
 
-        if (
-            str(source.get("year")) != year
-            or str(source.get("month")) != str(int(month))
-            or str(source.get("day")) != str(int(day))
-        ):
-            raise PuzzleMadnessImportError(
-                "URL date does not match puzzle data."
-            )
-
-        destination = write_module(
-            data,
-            args.url,
-            difficulty,
-            force=args.force,
-        )
-
-        print(f"Imported: {destination}")
-        print(f"Variant: {variant}")
-        print(f"Difficulty: {difficulty}")
-        print(f"Date: {year}-{int(month):02d}-{int(day):02d}")
-
-    except (PuzzleMadnessImportError, ValueError) as exc:
+    except PuzzleMadnessImportError as exc:
         parser.error(str(exc))
 
 
