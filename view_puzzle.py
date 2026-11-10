@@ -1,7 +1,7 @@
 
 import argparse
 
-from puzzles.ctc_001 import NAME, create_puzzle
+from puzzles.ctc_003 import NAME, create_puzzle
 from visualization.html_renderer import show_puzzle
 
 
@@ -58,7 +58,7 @@ def main():
     path = show_puzzle(
         puzzle,
         title=NAME,
-        output="output/ctc_001.html",
+        output="output/ctc_003.html",
         solution=solution_grid
     )
 

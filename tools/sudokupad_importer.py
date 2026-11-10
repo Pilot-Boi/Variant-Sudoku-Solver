@@ -404,6 +404,17 @@ def _is_black(color):
     )
 
 
+def _truthy_flag(value):
+    """
+    Interpret zipped boolean flags: PuzzleZipper
+    shortens true/false to 't'/'f'.
+    """
+    if isinstance(value, str):
+        return value.lower() in ("t", "true", "1")
+
+    return bool(value)
+
+
 # ----------------------------------------------------------
 # Fetching and payload decoding
 # ----------------------------------------------------------
@@ -651,8 +662,26 @@ def _new_model(source_url, payload, fmt):
         "unrecognized": [],
         "ambiguous": [],
         "manual": [],
+        "metadata_strings": [],
+        "_border_glyphs": [],
         "raw": payload,
     }
+
+
+def _set_solution(model, text, origin="metadata"):
+    """Validate and store an 81-digit solution string."""
+    text = (text or "").strip()
+
+    if len(text) == 81 and all(
+        ch in "123456789" for ch in text
+    ):
+        model["solution"] = text
+        return
+
+    model["unrecognized"].append(
+        f"Invalid solution string from {origin} "
+        f"({len(text)} characters)"
+    )
 
 
 def _add_constraint(model, kind, item):
@@ -700,8 +729,8 @@ def parse_scl(data, source_url="", payload=""):
 
     solution = metadata.get("solution")
 
-    if isinstance(solution, str) and solution.isdigit():
-        model["solution"] = solution
+    if solution is not None:
+        _set_solution(model, solution, "metadata")
 
     cells = data.get("cells") or data.get("ce") or []
 
@@ -783,9 +812,14 @@ def parse_scl(data, source_url="", payload=""):
             f"{arrow}"
         )
 
+    _resolve_border_glyphs(model)
+
     _apply_rule_text(model)
 
     return model
+
+
+_BORDER_GLYPHS = ("X", "V", "<", ">", "^", "∧", "∨")
 
 
 def _classify_overlay(model, overlay):
@@ -797,23 +831,24 @@ def _classify_overlay(model, overlay):
 
     center = overlay.get("center") or overlay.get("ct")
     width = overlay.get("width", overlay.get("w", 0)) or 0
-    rounded = overlay.get("rounded", overlay.get("r"))
-    text = overlay.get("text")
+    rounded = _truthy_flag(
+        overlay.get("rounded", overlay.get("r"))
+    )
+    text = overlay.get("text", overlay.get("te"))
     background = overlay.get(
         "backgroundColor", overlay.get("c2")
     )
 
     if text is not None:
-        if (
-            isinstance(text, str)
-            and text.strip().upper() in ("X", "V")
-            and center
-            and border_pair(center)
-        ):
-            pair = border_pair(center)
-            _add_constraint(
-                model, "xv",
-                (pair[0], pair[1], text.strip().upper()),
+        glyph = str(text).strip().upper()
+        pair = border_pair(center) if center else None
+
+        if pair and glyph in _BORDER_GLYPHS:
+            # Meaning depends on the rules text (XV
+            # marker versus inequality sign); resolved
+            # once all metadata has been read.
+            model["_border_glyphs"].append(
+                (pair, glyph, tuple(center))
             )
             return
 
@@ -856,6 +891,94 @@ def _classify_overlay(model, overlay):
         f"Overlay at {center} (width {width}) was not "
         f"recognized"
     )
+
+
+def _glyph_inequality(pair, glyph):
+    """
+    Interpret a border glyph as an inequality sign.
+
+    The glyph's point faces the smaller digit, so 'V'
+    on a vertical pair means the lower cell is smaller.
+    Returns (lesser, greater) or None when the glyph
+    does not fit the pair's orientation.
+    """
+    cell_a, cell_b = pair
+
+    vertical_pair = cell_a[1] == cell_b[1]
+
+    if vertical_pair:
+        upper, lower = cell_a, cell_b
+
+        if glyph in ("V", "∨"):
+            return lower, upper
+
+        if glyph in ("^", "∧"):
+            return upper, lower
+
+    else:
+        left, right = cell_a, cell_b
+
+        if glyph == "<":
+            return left, right
+
+        if glyph == ">":
+            return right, left
+
+    return None
+
+
+def _resolve_border_glyphs(model):
+    """
+    Classify collected border glyphs using the rules
+    text, after all metadata sources have been read.
+    """
+    glyphs = model.pop("_border_glyphs", [])
+
+    if not glyphs:
+        return
+
+    rules = model["rules"].lower()
+
+    xv_context = any(
+        phrase in rules
+        for phrase in (
+            "sum to 5", "sum to 10", "x or v", "xv",
+        )
+    )
+
+    inequality_context = (
+        "inequalit" in rules
+        or "smaller digit" in rules
+        or "towards the smaller" in rules
+    )
+
+    for pair, glyph, center in glyphs:
+        if (
+            glyph in ("X", "V")
+            and xv_context
+            and not inequality_context
+        ):
+            _add_constraint(
+                model, "xv", (pair[0], pair[1], glyph)
+            )
+            continue
+
+        if inequality_context and not (
+            xv_context and glyph in ("X", "V")
+        ):
+            direction = _glyph_inequality(pair, glyph)
+
+            if direction:
+                _add_constraint(
+                    model, "inequality", direction
+                )
+                continue
+
+        model["ambiguous"].append(
+            f"Border symbol {glyph!r} at {center} could "
+            f"not be confidently classified from the "
+            f"rules text"
+        )
 
 
 def _classify_underlay(model, underlay):
@@ -936,6 +1059,35 @@ def _classify_line(model, line):
     )
 
 
+_METADATA_PREFIXES = (
+    "title", "author", "rules", "solution"
+)
+
+
+def _coerce_cage_sum(value):
+    """
+    Validate a cage sum: integers, integral floats,
+    and numeric strings are accepted. Returns None
+    for anything else.
+    """
+    if isinstance(value, bool):
+        return None
+
+    if isinstance(value, int):
+        return value
+
+    if isinstance(value, float):
+        return int(value) if value.is_integer() else None
+
+    if isinstance(value, str):
+        text = value.strip()
+
+        if text.lstrip("-").isdigit():
+            return int(text)
+
+    return None
+
+
 def _classify_cage(model, cage):
     if not isinstance(cage, dict):
         model["unrecognized"].append(
@@ -943,26 +1095,70 @@ def _classify_cage(model, cage):
         )
         return
 
-    cells = cage.get("cells") or []
-    value = cage.get("value")
+    cells = cage.get("cells", cage.get("ce"))
+    value = cage.get("value", cage.get("v"))
 
-    try:
-        total = int(value)
-    except (TypeError, ValueError):
+    # Cage-like objects carrying only a prefixed string
+    # are SudokuPad metadata, not Killer cages.
+    if cells is None and isinstance(value, str):
+        prefix, separator, rest = value.partition(":")
+        prefix = prefix.strip().lower()
+
+        if separator and prefix in _METADATA_PREFIXES:
+            model["metadata_strings"].append(value)
+
+            rest = rest.strip()
+
+            if prefix == "solution":
+                _set_solution(
+                    model, rest, "cage metadata"
+                )
+            elif not model[prefix]:
+                model[prefix] = rest
+
+            return
+
         model["unrecognized"].append(
-            f"Cage without a numeric sum: {cage}"
+            f"Cage-like object with unknown metadata "
+            f"prefix: {value!r}"
         )
         return
 
-    converted = [
-        (int(r), int(c)) for r, c in cells
-    ]
-
-    if not converted:
+    if not cells:
         model["unrecognized"].append(
             f"Cage without cells: {cage}"
         )
         return
+
+    total = _coerce_cage_sum(value)
+
+    if total is None:
+        model["unrecognized"].append(
+            f"Cage without a valid integer sum: {cage}"
+        )
+        return
+
+    converted = []
+
+    for cell in cells:
+        try:
+            r, c = int(cell[0]), int(cell[1])
+        except (TypeError, ValueError, IndexError):
+            model["unrecognized"].append(
+                f"Cage with invalid cell {cell!r}: {cage}"
+            )
+            return
+
+        if not (
+            0 <= r < SUPPORTED_SIZE
+            and 0 <= c < SUPPORTED_SIZE
+        ):
+            model["unrecognized"].append(
+                f"Cage cell out of bounds {cell!r}: {cage}"
+            )
+            return
+
+        converted.append((r, c))
 
     _add_constraint(
         model, "killer",
@@ -1309,8 +1505,18 @@ _METHOD_MAP = {
 
 def generate_module(model, module_name):
     """Render the Python puzzle module source."""
-    title = model["title"] or "Untitled"
-    author = model["author"] or "Unknown"
+    title = (model["title"] or "Untitled").strip()
+    author = (model["author"] or "Unknown").strip()
+
+    diagonals = set(
+        model["constraints"].get("diagonal", [])
+    )
+
+    single_diagonals = (
+        sorted(diagonals)
+        if diagonals and not {"main", "anti"} <= diagonals
+        else []
+    )
 
     lines = []
 
@@ -1333,6 +1539,13 @@ def generate_module(model, module_name):
     lines.append('"""')
     lines.append("")
     lines.append("from sudoku.puzzle import SudokuPuzzle")
+
+    if single_diagonals:
+        lines.append(
+            "from sudoku.constraints import "
+            "AllDifferentConstraint"
+        )
+
     lines.append("")
     lines.append(f'NAME = "{title} — {author}"')
 
@@ -1444,11 +1657,26 @@ def generate_module(model, module_name):
         lines.append(
             "    puzzle.add_diagonal_constraints()"
         )
-    elif diagonals:
-        raise SudokuPadImportError(
-            "Single-diagonal puzzles need manual "
-            "translation"
-        )
+    else:
+        for diagonal in single_diagonals:
+            if diagonal == "main":
+                cells = [(i, i) for i in range(9)]
+                comment = "Main diagonal only."
+            else:
+                cells = [(i, 8 - i) for i in range(9)]
+                comment = "Anti-diagonal only."
+
+            lines.append("")
+            lines.append(f"    # {comment}")
+            lines.append("    puzzle.add_constraint(")
+            lines.append("        AllDifferentConstraint(")
+            lines.append(f"            {cells},")
+            lines.append(
+                "            "
+                "required_values=set(range(1, 10)),"
+            )
+            lines.append("        )")
+            lines.append("    )")
 
     for rule in constraints.get("global", []):
         method = {
@@ -1553,6 +1781,13 @@ def build_report(model):
             f"  {item}" if not item.startswith(" ")
             else item
         )
+
+    if model["metadata_strings"]:
+        lines.append("")
+        lines.append("Original metadata strings:")
+
+        for item in model["metadata_strings"]:
+            lines.append(f"  {item}")
 
     lines.append("")
     lines.append("Full rules text:")

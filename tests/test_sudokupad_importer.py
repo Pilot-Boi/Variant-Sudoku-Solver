@@ -29,6 +29,12 @@ FIXTURE = (
     Path(__file__).parent / "fixtures" / "wanddeko_scl.txt"
 )
 
+MUT_FIXTURE = (
+    Path(__file__).parent
+    / "fixtures"
+    / "mut_zur_luecke_scl.txt"
+)
+
 
 def wanddeko_payload():
     return FIXTURE.read_text(encoding="utf-8").strip()
@@ -38,6 +44,18 @@ def wanddeko_model():
     fmt, data = decode_payload(wanddeko_payload())
     return parse_scl(
         data, "https://sudokupad.app/2004fp6a0r"
+    )
+
+
+def mut_model():
+    payload = MUT_FIXTURE.read_text(
+        encoding="utf-8"
+    ).strip()
+
+    fmt, data = decode_payload(payload)
+
+    return parse_scl(
+        data, "https://sudokupad.app/q9tbRnF4Nh"
     )
 
 
@@ -336,6 +354,283 @@ class TestSclParsing(unittest.TestCase):
 
         model = parse_scl(data)
 
+        self.assertTrue(model["ambiguous"])
+
+
+class TestMutZurLuecke(unittest.TestCase):
+    """Regression tests for the second real puzzle."""
+
+    def test_metadata_from_cage_objects(self):
+        model = mut_model()
+
+        self.assertEqual(model["title"], "Mut zur Lücke!")
+        self.assertEqual(model["author"], "Wuschel")
+        self.assertIn(
+            "inequality sign", model["rules"].lower()
+        )
+        self.assertEqual(len(model["solution"]), 81)
+        self.assertTrue(
+            model["solution"].startswith("467953812")
+        )
+
+        # Original strings are preserved for the report.
+        self.assertEqual(
+            len(model["metadata_strings"]), 4
+        )
+
+    def test_killer_cages_imported(self):
+        model = mut_model()
+
+        cages = model["constraints"]["killer"]
+
+        self.assertEqual(len(cages), 8)
+
+        sums = sorted(total for _, total in cages)
+
+        self.assertEqual(
+            sums, [12, 12, 12, 20, 20, 28, 28, 28]
+        )
+
+        self.assertIn(
+            (((0, 0), (1, 0), (2, 0), (2, 1)), 12),
+            cages,
+        )
+
+    def test_single_main_diagonal(self):
+        model = mut_model()
+
+        self.assertEqual(
+            model["constraints"]["diagonal"], ["main"]
+        )
+
+    def test_glyph_inequality_orientation(self):
+        model = mut_model()
+
+        # The 'V' glyph points down toward the smaller
+        # digit: R2C1 < R1C1 (solution: 1 < 4).
+        self.assertEqual(
+            model["constraints"]["inequality"],
+            [((1, 0), (0, 0))],
+        )
+
+    def test_no_invented_kropki(self):
+        model = mut_model()
+
+        self.assertNotIn("kropki", model["constraints"])
+
+    def test_import_is_complete(self):
+        model = mut_model()
+
+        self.assertEqual(model["unrecognized"], [])
+        self.assertEqual(model["ambiguous"], [])
+        self.assertEqual(model["manual"], [])
+        self.assertEqual(classify_import(model), "Complete")
+
+    def test_generated_module_with_single_diagonal(self):
+        model = mut_model()
+
+        source = generate_module(model, "ctc_test")
+
+        namespace = {}
+        exec(compile(source, "ctc_test.py", "exec"), namespace)
+
+        self.assertEqual(
+            namespace["NAME"], "Mut zur Lücke! — Wuschel"
+        )
+
+        puzzle = namespace["create_puzzle"]()
+
+        # 27 standard + 8 cages + 1 diagonal + 1 inequality.
+        self.assertEqual(len(puzzle.constraints), 37)
+
+
+class TestCageParsing(unittest.TestCase):
+
+    def cage_model(self, cages, rules=None):
+        data = synthetic_scl(ca=cages)
+
+        if rules is not None:
+            data["metadata"]["rules"] = rules
+
+        return parse_scl(data)
+
+    def test_numeric_sum_types(self):
+        model = self.cage_model([
+            {"ce": [[0, 0], [0, 1]], "v": 10},
+            {"ce": [[1, 0], [1, 1]], "v": "11"},
+            {"ce": [[2, 0], [2, 1]], "v": 12.0},
+        ], rules="Digits in cages sum to the total.")
+
+        sums = sorted(
+            total
+            for _, total in model["constraints"]["killer"]
+        )
+
+        self.assertEqual(sums, [10, 11, 12])
+        self.assertEqual(model["unrecognized"], [])
+
+    def test_malformed_sums_rejected(self):
+        model = self.cage_model([
+            {"ce": [[0, 0], [0, 1]], "v": 12.5},
+            {"ce": [[1, 0], [1, 1]], "v": "abc"},
+            {"ce": [[2, 0], [2, 1]], "v": None},
+            {"ce": [[3, 0], [3, 1]], "v": True},
+        ])
+
+        self.assertNotIn("killer", model["constraints"])
+        self.assertEqual(len(model["unrecognized"]), 4)
+
+    def test_invalid_coordinates_rejected(self):
+        model = self.cage_model([
+            {"ce": [[0, 0], [0, 9]], "v": 10},
+            {"ce": [[0, 0], "bad"], "v": 10},
+        ])
+
+        self.assertNotIn("killer", model["constraints"])
+        self.assertEqual(len(model["unrecognized"]), 2)
+
+    def test_cage_metadata_extraction(self):
+        data = synthetic_scl(ca=[
+            {"v": "title: Synthetic "},
+            {"v": "author: Someone"},
+            {"v": "solution: " + "123456789" * 9},
+        ])
+
+        # No metadata dict: everything comes from cages.
+        data["metadata"] = {}
+
+        model = parse_scl(data)
+
+        self.assertEqual(model["title"], "Synthetic")
+        self.assertEqual(model["author"], "Someone")
+        self.assertEqual(len(model["solution"]), 81)
+
+    def test_metadata_dict_takes_priority(self):
+        model = self.cage_model([
+            {"v": "title: Synthetic"},
+        ])
+
+        # The synthetic fixture's metadata dict already
+        # provides the title "Test".
+        self.assertEqual(model["title"], "Test")
+        self.assertIn(
+            "title: Synthetic", model["metadata_strings"]
+        )
+
+    def test_invalid_solution_metadata_flagged(self):
+        model = self.cage_model([
+            {"v": "solution: 12345"},
+        ])
+
+        self.assertIsNone(model["solution"])
+        self.assertTrue(
+            any(
+                "Invalid solution" in item
+                for item in model["unrecognized"]
+            )
+        )
+
+    def test_unknown_cage_objects_reported(self):
+        model = self.cage_model([
+            {"v": "fogbank: something"},
+            {"v": 12},
+        ])
+
+        self.assertNotIn("killer", model["constraints"])
+        self.assertEqual(len(model["unrecognized"]), 2)
+
+    def test_missing_metadata_handled(self):
+        model = self.cage_model([
+            {"ce": [[0, 0], [0, 1]], "v": 10},
+        ], rules="Digits in cages sum to the total.")
+
+        self.assertEqual(model["title"], "Test")
+        self.assertIsNone(model["solution"])
+        self.assertEqual(
+            len(model["constraints"]["killer"]), 1
+        )
+
+
+class TestBorderGlyphs(unittest.TestCase):
+
+    def glyph_model(self, glyph, center, rules):
+        data = synthetic_scl(
+            o=[{
+                "ct": list(center), "w": 0.2, "h": 0.2,
+                "c1": "#F", "c2": "#F", "r": "f",
+                "te": glyph,
+            }]
+        )
+        data["metadata"]["rules"] = rules
+
+        return parse_scl(data)
+
+    def test_text_box_is_not_a_kropki_dot(self):
+        # 'r': 'f' means rounded=False: a text box must
+        # never be mistaken for a white dot.
+        model = self.glyph_model(
+            "V", (1, 0.5), "Normal sudoku rules apply."
+        )
+
+        self.assertNotIn("kropki", model["constraints"])
+
+    def test_glyph_without_context_is_ambiguous(self):
+        model = self.glyph_model(
+            "V", (1, 0.5), "Normal sudoku rules apply."
+        )
+
+        self.assertNotIn("inequality", model["constraints"])
+        self.assertNotIn("xv", model["constraints"])
+        self.assertTrue(model["ambiguous"])
+        self.assertEqual(
+            classify_import(model), "Needs Review"
+        )
+
+    def test_v_glyph_with_xv_rules(self):
+        model = self.glyph_model(
+            "V", (1, 0.5),
+            "Cells joined by V sum to 5; cells joined "
+            "by X sum to 10.",
+        )
+
+        self.assertEqual(
+            model["constraints"]["xv"],
+            [((0, 0), (1, 0), "V")],
+        )
+
+    def test_v_glyph_with_inequality_rules(self):
+        model = self.glyph_model(
+            "V", (1, 0.5),
+            "The inequality sign points towards the "
+            "smaller digit.",
+        )
+
+        self.assertEqual(
+            model["constraints"]["inequality"],
+            [((1, 0), (0, 0))],
+        )
+
+    def test_horizontal_glyphs(self):
+        model = self.glyph_model(
+            "<", (0.5, 3),
+            "The inequality sign points towards the "
+            "smaller digit.",
+        )
+
+        self.assertEqual(
+            model["constraints"]["inequality"],
+            [((0, 2), (0, 3))],
+        )
+
+    def test_mismatched_glyph_is_ambiguous(self):
+        # '<' on a vertical pair makes no sense.
+        model = self.glyph_model(
+            "<", (1, 0.5),
+            "The inequality sign points towards the "
+            "smaller digit.",
+        )
+
+        self.assertNotIn("inequality", model["constraints"])
         self.assertTrue(model["ambiguous"])
 
 
