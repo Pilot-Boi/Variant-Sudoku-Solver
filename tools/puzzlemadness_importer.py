@@ -242,9 +242,11 @@ def generate_constraint_code(data):
 
             cages[cage_id].append(cell_coordinates(index))
 
-        if set(cages) != set(range(len(sums))):
+        # Cage IDs may be sparse. Unused entries in cageSums
+        # do not represent actual cages.
+        if not cages:
             raise PuzzleMadnessImportError(
-                "Killer cage IDs and sums do not match."
+                "Killer puzzle contains no cages."
             )
 
         for cage_id, cells in sorted(cages.items()):
