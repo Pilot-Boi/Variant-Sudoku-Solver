@@ -388,9 +388,9 @@ def convert_little_killer_clue(diagonal_type, position, edge):
             f"Invalid Little Killer diagonal type: {diagonal_type!r}"
         )
 
-    if type(position) is not int or not 1 <= position <= 9:
+    if type(position) is not int or not -1 <= position <= 9:
         raise PuzzleMadnessImportError(
-            f"Invalid Little Killer position: {position!r}"
+            f"Invalid Little Killer position: {position}"
         )
 
     if type(edge) is not int or edge not in (0, 1, 2, 3):
@@ -406,6 +406,13 @@ def convert_little_killer_clue(diagonal_type, position, edge):
         if diagonal_type == 0
         else position - 1
     )
+    
+    if not 0 <= index <= 8:
+        raise PuzzleMadnessImportError(
+            f"Little Killer clue starts outside the grid: "
+            f"type={diagonal_type}, position={position}, "
+            f"edge={edge}, adjusted_index={index}"
+        )
 
     if edge == 0:  # Top
         start = (0, index)

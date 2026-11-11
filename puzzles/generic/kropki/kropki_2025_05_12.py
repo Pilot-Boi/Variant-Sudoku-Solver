@@ -1,0 +1,66 @@
+"""PuzzleMadness Kropki Sudoku — 2025-05-12."""
+
+from sudoku.puzzle import SudokuPuzzle
+
+
+NAME = 'Kropki Sudoku — 2025-05-12'
+SOURCE_URL = 'https://puzzlemadness.co.uk/kropkisudoku/hard/2025/5/12'
+DIFFICULTY = 'hard'
+
+
+def create_puzzle():
+    grid = [
+        [0, 0, 0, 0, 0, 0, 0, 3, 0],
+        [0, 0, 0, 0, 0, 0, 0, 0, 0],
+        [0, 6, 0, 0, 0, 0, 0, 0, 0],
+        [0, 0, 0, 0, 0, 0, 0, 0, 0],
+        [0, 0, 7, 0, 0, 0, 0, 0, 0],
+        [0, 0, 0, 0, 0, 0, 0, 0, 0],
+        [0, 0, 0, 0, 0, 0, 0, 0, 0],
+        [0, 0, 0, 0, 0, 0, 0, 0, 0],
+        [0, 0, 0, 0, 0, 0, 0, 0, 0],
+    ]
+
+    puzzle = SudokuPuzzle(grid)
+
+    puzzle.add_kropki_dot((0, 2), (0, 3), 'white')
+    puzzle.add_kropki_dot((0, 4), (0, 5), 'black')
+    puzzle.add_kropki_dot((0, 6), (0, 7), 'white')
+    puzzle.add_kropki_dot((1, 6), (1, 7), 'black')
+    puzzle.add_kropki_dot((2, 3), (2, 4), 'white')
+    puzzle.add_kropki_dot((3, 0), (3, 1), 'white')
+    puzzle.add_kropki_dot((3, 1), (3, 2), 'black')
+    puzzle.add_kropki_dot((3, 3), (3, 4), 'white')
+    puzzle.add_kropki_dot((3, 7), (3, 8), 'black')
+    puzzle.add_kropki_dot((4, 1), (4, 2), 'white')
+    puzzle.add_kropki_dot((4, 7), (4, 8), 'black')
+    puzzle.add_kropki_dot((5, 5), (5, 6), 'white')
+    puzzle.add_kropki_dot((5, 7), (5, 8), 'white')
+    puzzle.add_kropki_dot((6, 3), (6, 4), 'white')
+    puzzle.add_kropki_dot((7, 4), (7, 5), 'white')
+    puzzle.add_kropki_dot((7, 5), (7, 6), 'black')
+    puzzle.add_kropki_dot((7, 6), (7, 7), 'white')
+    puzzle.add_kropki_dot((7, 7), (7, 8), 'black')
+    puzzle.add_kropki_dot((0, 3), (1, 3), 'white')
+    puzzle.add_kropki_dot((0, 4), (1, 4), 'white')
+    puzzle.add_kropki_dot((0, 6), (1, 6), 'black')
+    puzzle.add_kropki_dot((1, 0), (2, 0), 'black')
+    puzzle.add_kropki_dot((2, 0), (3, 0), 'white')
+    puzzle.add_kropki_dot((2, 7), (3, 7), 'white')
+    puzzle.add_kropki_dot((3, 0), (4, 0), 'white')
+    puzzle.add_kropki_dot((3, 1), (4, 1), 'black')
+    puzzle.add_kropki_dot((3, 8), (4, 8), 'white')
+    puzzle.add_kropki_dot((4, 5), (5, 5), 'white')
+    puzzle.add_kropki_dot((5, 1), (6, 1), 'white')
+    puzzle.add_kropki_dot((5, 3), (6, 3), 'black')
+    puzzle.add_kropki_dot((5, 4), (6, 4), 'black')
+    puzzle.add_kropki_dot((5, 5), (6, 5), 'white')
+    puzzle.add_kropki_dot((5, 8), (6, 8), 'white')
+    puzzle.add_kropki_dot((6, 0), (7, 0), 'white')
+    puzzle.add_kropki_dot((6, 5), (7, 5), 'white')
+    puzzle.add_kropki_dot((6, 7), (7, 7), 'black')
+    puzzle.add_kropki_dot((7, 4), (8, 4), 'white')
+    puzzle.add_kropki_dot((7, 6), (8, 6), 'black')
+    puzzle.add_kropki_dot((7, 8), (8, 8), 'white')
+
+    return puzzle
