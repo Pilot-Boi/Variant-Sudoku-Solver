@@ -4,7 +4,6 @@ from sudoku.constraints import (
     ThermometerConstraint,
     KillerCageConstraint,
     NotEqualConstraint,
-    NonConsecutiveConstraint,
     GermanWhispersConstraint,
     RenbanConstraint,
     PalindromeConstraint,
@@ -153,20 +152,7 @@ class SudokuPuzzle:
         """
         for a, b in generate_king_pairs():
             self.add_constraint(NotEqualConstraint(a, b))
-            
-    
-    def add_nonconsecutive_constraints(self):
-        """
-        Enforce global Nonconsecutive Sudoku rules.
-
-        Orthogonally adjacent cells cannot contain
-        consecutive digits.
-        """
-        for a, b in generate_orthogonal_pairs():
-            self.add_constraint(
-                NonConsecutiveConstraint(a, b)
-            )
-            
+                      
     def add_thermometer(self, cells):
         if len(cells) < 2:
             raise ValueError(
@@ -186,7 +172,6 @@ class SudokuPuzzle:
         self.add_constraint(
             ThermometerConstraint(cells)
         )
-        
     
     def add_killer_cage(self, cells, target_sum):
         """

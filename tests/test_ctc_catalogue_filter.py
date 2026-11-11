@@ -80,10 +80,6 @@ class TestConfigAndNormalization(unittest.TestCase):
             normalize_tag("O/E", self.config),
             "Odd/Even",
         )
-        self.assertEqual(
-            normalize_tag("Non-Consecutive", self.config),
-            "Nonconsecutive",
-        )
 
     def test_unknown_tag_is_preserved(self):
         self.assertEqual(
