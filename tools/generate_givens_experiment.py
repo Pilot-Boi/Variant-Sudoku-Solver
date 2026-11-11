@@ -21,7 +21,6 @@ GRID_FILES = [
     "standard_anti_king_grids.json",
 ]
 
-
 def generate_experiment():
     rng = random.Random(RANDOM_SEED)
     experiments = []
