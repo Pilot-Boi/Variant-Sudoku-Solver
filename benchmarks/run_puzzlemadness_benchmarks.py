@@ -4,6 +4,8 @@ import argparse
 import csv
 import re
 from pathlib import Path
+import multiprocessing as mp
+import queue
 
 from benchmarks.benchmark_utils import (
     benchmark_first_solution,
@@ -82,6 +84,107 @@ def append_result(path, result):
 
         writer.writerow(result)
 
+def benchmark_worker(module_name, result_queue):
+    """Run one puzzle benchmark in a separate process."""
+    try:
+        import importlib
+
+        module = importlib.import_module(module_name)
+
+        result = benchmark_first_solution(
+            getattr(module, "NAME", module_name),
+            module.create_puzzle,
+        )
+
+        result_queue.put(("success", result))
+
+    except Exception as exc:
+        result_queue.put((
+            "error",
+            f"{type(exc).__name__}: {exc}",
+        ))
+
+def benchmark_worker(module_name, connection):
+    """Run one puzzle benchmark in a separate process."""
+    try:
+        import importlib
+
+        module = importlib.import_module(module_name)
+
+        result = benchmark_first_solution(
+            getattr(module, "NAME", module_name),
+            module.create_puzzle,
+        )
+
+        connection.send(("success", result))
+
+    except Exception as exc:
+        connection.send((
+            "error",
+            f"{type(exc).__name__}: {exc}",
+        ))
+
+    finally:
+        connection.close()
+
+
+def benchmark_with_timeout(module_name, timeout):
+    """Run one puzzle with a hard wall-clock timeout."""
+    context = mp.get_context("spawn")
+    parent_conn, child_conn = context.Pipe(duplex=False)
+
+    process = context.Process(
+        target=benchmark_worker,
+        args=(module_name, child_conn),
+    )
+
+    try:
+        process.start()
+        child_conn.close()
+
+        if parent_conn.poll(timeout):
+            try:
+                outcome, payload = parent_conn.recv()
+            except EOFError:
+                return {
+                    "status": "ERROR",
+                    "validation": "N/A",
+                    "error": "Worker exited without returning a result",
+                }
+
+            if outcome == "error":
+                return {
+                    "status": "ERROR",
+                    "validation": "N/A",
+                    "error": payload,
+                }
+
+            return payload
+
+        if process.is_alive():
+            process.terminate()
+            process.join()
+
+            return {
+                "status": "TIMEOUT",
+                "validation": "N/A",
+                "error": f"Exceeded {timeout} seconds",
+            }
+
+        return {
+            "status": "ERROR",
+            "validation": "N/A",
+            "error": f"Worker exited with code {process.exitcode}",
+        }
+
+    finally:
+        parent_conn.close()
+
+        if process.is_alive():
+            process.terminate()
+
+        process.join()
+        process.close()
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
@@ -91,9 +194,18 @@ def main(argv=None):
     parser.add_argument("--limit", type=int)
     parser.add_argument("--output", type=Path, default=OUTPUT_FILE)
     parser.add_argument("--retry-failed", action="store_true")
-
+    parser.add_argument(
+        "--timeout",
+        type=float,
+        default=30.0,
+        help="Maximum seconds allowed per puzzle (default: 30)",
+    )
+    
     args = parser.parse_args(argv)
 
+    if args.timeout <= 0:
+        parser.error("--timeout must be greater than zero")
+    
     if args.limit is not None and args.limit < 1:
         parser.error("--limit must be at least 1")
 
@@ -168,24 +280,30 @@ def main(argv=None):
         }
 
         try:
-            result = benchmark_first_solution(
-                row["puzzle"],
-                module.create_puzzle,
-            )
+            result = benchmark_with_timeout(key, args.timeout)
 
             row.update(result)
 
             if result["status"] == "SOLVED":
                 solved += 1
+
+                print(
+                    f"  SOLVED | "
+                    f"{result['elapsed_seconds']:.4f}s | "
+                    f"{result['search_decisions']} decisions | "
+                    f"{result['backtracks']} backtracks"
+                )
+
+            elif result["status"] == "TIMEOUT":
+                failed += 1
+                print(f"  TIMEOUT | Exceeded {args.timeout}s")
+
             else:
                 failed += 1
-
-            print(
-                f"  {result['status']} | "
-                f"{result['elapsed_seconds']:.4f}s | "
-                f"{result['search_decisions']} decisions | "
-                f"{result['backtracks']} backtracks"
-            )
+                print(
+                    f"  {result['status']} | "
+                    f"{result.get('error', 'No solution found')}"
+                )
 
         except Exception as exc:
             failed += 1
