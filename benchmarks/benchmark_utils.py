@@ -141,17 +141,8 @@ def benchmark_first_solution(name, create_puzzle):
 
     constraint_count = len(puzzle.constraints)
 
-    # Construct the solver using the puzzle's current domains.
-    from csp.solver import CSPSolver
-
-    solver = CSPSolver(
-        puzzle.variables,
-        puzzle.domains,
-        puzzle.constraints,
-    )
-
     start = time.perf_counter()
-    solution = solver.solve()
+    solution, solver = puzzle.solve()
     elapsed = time.perf_counter() - start
 
     if solution is None:
