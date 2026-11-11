@@ -2,7 +2,6 @@ from sudoku.constraints import (
     KillerCageConstraint,
     ThermometerConstraint,
     NotEqualConstraint,
-    NonConsecutiveConstraint,
     GermanWhispersConstraint,
     RenbanConstraint,
     PalindromeConstraint,
@@ -129,16 +128,6 @@ def validate_solution(puzzle, solution):
                     f"R{a[0] + 1}C{a[1] + 1} and "
                     f"R{b[0] + 1}C{b[1] + 1}"
                 )
-        elif isinstance(constraint, NonConsecutiveConstraint):
-            a, b = constraint.variables
-
-            if a in solution and b in solution:
-                if abs(solution[a] - solution[b]) == 1:
-                    errors.append(
-                        f"Nonconsecutive violation: "
-                        f"R{a[0] + 1}C{a[1] + 1} and "
-                        f"R{b[0] + 1}C{b[1] + 1}"
-                    )
 
         elif isinstance(constraint, GermanWhispersConstraint):
             cells = constraint.variables

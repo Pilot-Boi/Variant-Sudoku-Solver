@@ -9,7 +9,6 @@ from sudoku.constraints import (
     KillerCageConstraint,
     ThermometerConstraint,
     NotEqualConstraint,
-    NonConsecutiveConstraint,
     GermanWhispersConstraint,
     RenbanConstraint,
     PalindromeConstraint,
@@ -35,7 +34,6 @@ VARIANT_STYLES = {
     "diagonal": ("╳", "Diagonal"),
     "anti-knight": ("♞", "Anti-Knight"),
     "anti-king": ("♚", "Anti-King"),
-    "nonconsecutive": ("↔", "Nonconsecutive"),
     "whispers": ("≋", "German Whispers"),
     "renban": ("≡", "Renban"),
     "palindrome": ("⇄", "Palindrome"),
@@ -176,14 +174,6 @@ def render_puzzle(
     }
 
     has_anti_king = False
-    
-    nonconsecutive_neighbors = {
-        (r, c): set()
-        for r in range(9)
-        for c in range(9)
-    }
-
-    has_nonconsecutive = False
 
     for constraint in puzzle.constraints:
         cells = list(constraint.variables)
@@ -207,16 +197,6 @@ def render_puzzle(
 
                 anti_king_neighbors[a].add(b)
                 anti_king_neighbors[b].add(a)
-
-            continue
-        
-        if isinstance(constraint, NonConsecutiveConstraint):
-            a, b = constraint.variables
-
-            has_nonconsecutive = True
-
-            nonconsecutive_neighbors[a].add(b)
-            nonconsecutive_neighbors[b].add(a)
 
             continue
 
@@ -472,7 +452,7 @@ def render_puzzle(
             )
         })
 
-    # Layer 1: Not Equal AND Nonconsecutive constraints (grouped by cell)
+    # Layer 1: Not Equal constraints (grouped by cell)
     if has_anti_knight:
         for cell, neighbors in anti_knight_neighbors.items():
             if not neighbors:
@@ -540,33 +520,6 @@ def render_puzzle(
                     )
                 ),
             })
-    
-    if has_nonconsecutive:
-        for cell, neighbors in nonconsecutive_neighbors.items():
-            if not neighbors:
-                continue
-
-            ordered_neighbors = sorted(neighbors)
-
-            inspector_constraints.append({
-                "id": len(inspector_constraints),
-                "kind": "nonconsecutive",
-                "label": variant_title("nonconsecutive"),
-                "owner": list(cell),
-                "cells": [
-                    list(cell),
-                    *[list(n) for n in ordered_neighbors],
-                ],
-                "details": (
-                    "Orthogonally adjacent cells cannot "
-                    "contain consecutive digits. "
-                    "Affected cells: "
-                    + ", ".join(
-                        cell_label(n)
-                        for n in ordered_neighbors
-                    )
-                ),
-            })  
 
     if has_negative_kropki:
         for cell, neighbors in negative_kropki_neighbors.items():
@@ -1290,7 +1243,6 @@ def render_puzzle(
         "diagonal": bool(diagonal_cells),
         "anti-knight": has_anti_knight,
         "anti-king": has_anti_king,
-        "nonconsecutive": has_nonconsecutive,
         "whispers": bool(whisper_lines),
         "renban": bool(renban_lines),
         "palindrome": bool(palindrome_lines),
@@ -1713,7 +1665,6 @@ function selectCell(r, c) {{
             if (
                 constraint.kind === "anti-knight" ||
                 constraint.kind === "anti-king" ||
-                constraint.kind === "nonconsecutive" ||
                 constraint.kind === "kropki-negative" ||
                 constraint.kind === "xv-negative"
             ) {{

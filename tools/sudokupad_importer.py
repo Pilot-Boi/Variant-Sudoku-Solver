@@ -1366,9 +1366,6 @@ def parse_fpuzzles(data, source_url="", payload=""):
     if data.get("antiking"):
         _add_constraint(model, "global", "anti-king")
 
-    if data.get("nonconsecutive"):
-        _add_constraint(model, "global", "nonconsecutive")
-
     if data.get("negative"):
         model["manual"].append(
             f"fpuzzles negative toggles need manual "
@@ -1380,10 +1377,9 @@ def parse_fpuzzles(data, source_url="", payload=""):
         "difference", "ratio", "xv", "thermometer",
         "palindrome", "renban", "whispers", "betweenline",
         "arrow", "killercage", "odd", "even",
-        "diagonal+", "diagonal-", "antiknight", "antiking",
-        "nonconsecutive", "negative", "solution",
-        "highlightConflicts", "text", "line", "circle",
-        "rectangle",
+        "diagonal+", "diagonal-", "antiknight", "antiking", 
+        "negative", "solution", "highlightConflicts", 
+        "text", "line", "circle","rectangle",
     }
 
     for key in data:
@@ -1438,10 +1434,7 @@ _GLOBAL_RULES = (
                      "knight's move", "knights move")),
     ("anti-king", ("anti-king", "antiking",
                    "king's move", "kings move")),
-    ("nonconsecutive", ("non-consecutive",
-                        "nonconsecutive")),
 )
-
 
 def _apply_rule_text(model):
     rules = f" {model['rules'].lower()} "
@@ -1723,8 +1716,6 @@ def generate_module(model, module_name):
         method = {
             "anti-knight": "add_anti_knight_constraints",
             "anti-king": "add_anti_king_constraints",
-            "nonconsecutive":
-                "add_nonconsecutive_constraints",
             "negative-kropki":
                 "add_negative_kropki_constraints",
         }.get(rule)
