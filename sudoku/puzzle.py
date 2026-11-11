@@ -822,7 +822,7 @@ class SudokuPuzzle:
 
         return status, solutions, solver
         
-    def solve(self):
+    def solve(self, instrument=False):
         initial_assignment = {
             (r, c): self.grid[r][c]
             for r, c in self.variables
@@ -835,6 +835,7 @@ class SudokuPuzzle:
             self.constraints,
         )
         
+        solver.instrument = instrument
         solution = solver.solve(initial_assignment)
         
         return solution, solver

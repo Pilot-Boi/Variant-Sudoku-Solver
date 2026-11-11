@@ -129,7 +129,7 @@ def benchmark_puzzle(name, create_puzzle, trials=TRIALS):
         **ctc_fields(name, median),
     }
 
-def benchmark_first_solution(name, create_puzzle):
+def benchmark_first_solution(name, create_puzzle, instrument=False):
     """Benchmark finding one solution without checking uniqueness."""
     puzzle = create_puzzle()
 
@@ -142,7 +142,8 @@ def benchmark_first_solution(name, create_puzzle):
     constraint_count = len(puzzle.constraints)
 
     start = time.perf_counter()
-    solution, solver = puzzle.solve()
+    
+    solution, solver = puzzle.solve(instrument=instrument)
     elapsed = time.perf_counter() - start
 
     if solution is None:
@@ -153,7 +154,7 @@ def benchmark_first_solution(name, create_puzzle):
         validation = "FAIL" if errors else "PASS"
         status = "SOLVED" if not errors else "INVALID"
 
-    return {
+    result = {
         "puzzle": name,
         "status": status,
         "validation": validation,
@@ -169,6 +170,16 @@ def benchmark_first_solution(name, create_puzzle):
             else "Propagation + Search"
         ),
     }
+
+    if instrument:
+        result.update({
+            key: value
+            for key, value in solver.metrics.items()
+            if key != "constraint_types"
+        })
+        result["constraint_types"] = solver.metrics["constraint_types"]
+
+    return result
     
 def write_benchmark_csv(results, path):
     path = Path(path)
