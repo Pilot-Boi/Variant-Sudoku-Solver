@@ -129,7 +129,56 @@ def benchmark_puzzle(name, create_puzzle, trials=TRIALS):
         **ctc_fields(name, median),
     }
 
+def benchmark_first_solution(name, create_puzzle):
+    """Benchmark finding one solution without checking uniqueness."""
+    puzzle = create_puzzle()
 
+    givens = sum(
+        value != 0
+        for row in puzzle.grid
+        for value in row
+    )
+
+    constraint_count = len(puzzle.constraints)
+
+    # Construct the solver using the puzzle's current domains.
+    from csp.solver import CSPSolver
+
+    solver = CSPSolver(
+        puzzle.variables,
+        puzzle.domains,
+        puzzle.constraints,
+    )
+
+    start = time.perf_counter()
+    solution = solver.solve()
+    elapsed = time.perf_counter() - start
+
+    if solution is None:
+        status = "UNSOLVED"
+        validation = "N/A"
+    else:
+        errors = validate_solution(puzzle, solution)
+        validation = "FAIL" if errors else "PASS"
+        status = "SOLVED" if not errors else "INVALID"
+
+    return {
+        "puzzle": name,
+        "status": status,
+        "validation": validation,
+        "givens": givens,
+        "constraints": constraint_count,
+        "elapsed_seconds": round(elapsed, 6),
+        "search_decisions": solver.nodes,
+        "backtracks": solver.backtracks,
+        "propagation_rounds": solver.propagation_rounds,
+        "solving_method": (
+            "Propagation Only"
+            if solver.nodes == 0
+            else "Propagation + Search"
+        ),
+    }
+    
 def write_benchmark_csv(results, path):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
