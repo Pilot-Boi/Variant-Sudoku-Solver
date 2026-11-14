@@ -11,13 +11,31 @@ import json
 from pathlib import Path
 from sudoku.puzzle import SudokuPuzzle
 
+# SIMPLE SUDOKU
 SAMPLE = [
-    [5,3,0,0,7,0,0,0,0], [6,0,0,1,9,5,0,0,0],
-    [0,9,8,0,0,0,0,6,0], [8,0,0,0,6,0,0,0,3],
-    [4,0,0,8,0,3,0,0,1], [7,0,0,0,2,0,0,0,6],
-    [0,6,0,0,0,0,2,8,0], [0,0,0,4,1,9,0,0,5],
+    [5,3,0,0,7,0,0,0,0], 
+    [6,0,0,1,9,5,0,0,0],
+    [0,9,8,0,0,0,0,6,0], 
+    [8,0,0,0,6,0,0,0,3],
+    [4,0,0,8,0,3,0,0,1], 
+    [7,0,0,0,2,0,0,0,6],
+    [0,6,0,0,0,0,2,8,0], 
+    [0,0,0,4,1,9,0,0,5],
     [0,0,0,0,8,0,0,7,9],
 ]
+
+# AL ESCARGOT
+# SAMPLE = [
+#     [1,0,0,0,0,7,0,9,0],
+#     [0,3,0,0,2,0,0,0,8],
+#     [0,0,9,6,0,0,5,0,0],
+#     [0,0,5,3,0,0,9,0,0],
+#     [0,1,0,0,8,0,0,0,2],
+#     [6,0,0,0,0,4,0,0,0],
+#     [3,0,0,0,0,0,0,1,0],
+#     [0,4,0,0,0,0,0,0,7],
+#     [0,0,7,0,0,0,3,0,0],
+# ]
 
 HTML = r'''<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -38,7 +56,7 @@ body{max-width:980px;margin:28px auto;padding:0 18px}h1{margin-bottom:6px}p{colo
 #details{margin-top:10px;max-height:190px;overflow:auto;font-size:13px;line-height:1.6}
 #details .removed{color:#ff8c9b}#details .added{color:#7ff2b0}
 .panel{border:1px solid #354560;border-radius:12px;padding:18px;background:#19253a}
-.controls{display:flex;flex-wrap:wrap;gap:8px;margin:14px 0}button,select{background:#293d5d;color:white;border:1px solid #536b8f;border-radius:7px;padding:9px 12px;cursor:pointer}button:hover{background:#36537c}
+.pause-options{display:flex;flex-wrap:wrap;gap:16px;margin:12px 0;color:#d8e8ff;font-size:14px}.pause-options input{accent-color:#74c9ef}.controls{display:flex;flex-wrap:wrap;gap:8px;margin:14px 0}button,select{background:#293d5d;color:white;border:1px solid #536b8f;border-radius:7px;padding:9px 12px;cursor:pointer}button:hover{background:#36537c}
 input[type=range]{width:100%;accent-color:#74c9ef}#event{min-height:88px;line-height:1.6;overflow-wrap:anywhere}#event strong{color:#a5dbff}
 #log{max-height:270px;overflow:auto;font:12px/1.5 Consolas,monospace;white-space:pre-wrap;color:#b6c5d9}
 small{color:#b4c4d9}.key{display:flex;gap:12px;flex-wrap:wrap;margin-top:10px;font-size:13px}
@@ -50,8 +68,8 @@ small{color:#b4c4d9}.key{display:flex;gap:12px;flex-wrap:wrap;margin-top:10px;fo
 </section><section class="panel"><div><strong id="counter"></strong> <small id="stats"></small></div>
 <input id="seek" type="range" min="0" value="0" aria-label="Replay position">
 <div class="controls"><button id="first">⏮</button><button id="prev">◀ Previous</button><button id="play">▶ Play</button><button id="next">Next ▶</button><button id="last">⏭</button></div>
-<label style="display:block;margin:12px 0"><input id="pauseDecision" type="checkbox" checked> Pause autoplay on search decisions</label>
 <label>Speed <select id="speed"><option value="1000">1 step/s</option><option value="350" selected>3 steps/s</option><option value="100">10 steps/s</option><option value="25">40 steps/s</option></select></label>
+<div class="pause-options"><label><input type="checkbox" id="pauseDecision" checked> Pause on decisions</label><label><input type="checkbox" id="pauseDeadEnd" checked> Pause on dead ends</label></div>
 <div id="event"></div><div id="details"></div><h3>Recent events</h3><div id="log"></div></section></div>
 <script id="recording" type="application/json">__DATA__</script>
 <script>
@@ -122,15 +140,13 @@ if(e){
 document.getElementById('log').textContent=events.slice(Math.max(0,index-12),index).map((ev,i)=>`${Math.max(0,index-12)+i+1}. ${describe(ev)}`).join('\\n');
 }
 function pause(){if(timer!==null){clearInterval(timer);timer=null}document.getElementById('play').textContent='▶ Play'}
-function go(i){
- index=Math.max(0,Math.min(events.length,i));
- render();
- if(index===events.length)pause();
-}
+function go(i){index=Math.max(0,Math.min(events.length,i));render();if(index===events.length)pause()}
 function autoplayStep(){
  go(index+1);
- if(timer!==null && document.getElementById('pauseDecision').checked &&
-    index>0 && events[index-1].type==='decision'){
+ if(timer===null || index===0)return;
+ const type=events[index-1].type;
+ if((type==='decision' && document.getElementById('pauseDecision').checked) ||
+    (type==='dead_end' && document.getElementById('pauseDeadEnd').checked)){
    pause();
  }
 }
