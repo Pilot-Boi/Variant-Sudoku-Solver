@@ -71,6 +71,70 @@ class CSPSolver:
         })
         self._trace_last = current
 
+    def _trace_conflict(self, constraint, domains, error=None):
+        """Explain verifiable AllDifferent failures without guessing at culprit cells.
+
+        `cells` contains the direct logical witness. `scope` is only context.
+        Other constraint types deliberately return no unsupported diagnosis.
+        """
+        from itertools import combinations
+        if type(constraint).__name__ != "AllDifferentConstraint":
+            return {"conflict_kind": "unclassified", "cells": [],
+                    "message": "Constraint rejected this state; exact conflicting cells unavailable."}
+        scope = list(constraint.variables)
+        def coords(items):
+            return [list(v) for v in items]
+        # Two assigned copies of a digit directly violate AllDifferent.
+        for i, a in enumerate(scope):
+            if len(domains[a]) != 1:
+                continue
+            for b in scope[i + 1:]:
+                if domains[a] == domains[b]:
+                    value = next(iter(domains[a]))
+                    return {"conflict_kind": "duplicate", "cells": coords([a, b]),
+                            "value": value,
+                            "message": f"R{a[0]+1}C{a[1]+1} and R{b[0]+1}C{b[1]+1} are both {value}."}
+        for target in scope:
+            if not domains[target]:
+                return {"conflict_kind": "empty_domain", "cells": coords([target]),
+                        "message": f"R{target[0]+1}C{target[1]+1} has no remaining candidates."}
+        # A cell whose remaining digits are all occupied by peer singles.
+        # Propagation raises before clearing this domain, so inspect it here.
+        if error and str(error) == "Empty domain":
+            for target in scope:
+                if len(domains[target]) <= 1:
+                    continue
+                blockers = [v for v in scope if v != target and len(domains[v]) == 1
+                            and next(iter(domains[v])) in domains[target]]
+                if set().union(*(domains[v] for v in blockers)) >= domains[target]:
+                    return {"conflict_kind": "blocked_candidates",
+                            "cells": coords([target] + blockers),
+                            "message": f"Every candidate for R{target[0]+1}C{target[1]+1} is already forced in this unit."}
+        # Naked-subset failure: k cells occupy exactly k digits and leave a
+        # different cell with none of its own digits.
+        if error and "Naked subset" in str(error):
+            for size in range(2, min(constraint.max_subset_size, len(scope)-1)+1):
+                pool = [v for v in scope if 1 < len(domains[v]) <= size]
+                for group in combinations(pool, size):
+                    digits = set().union(*(domains[v] for v in group))
+                    if len(digits) != size:
+                        continue
+                    for target in scope:
+                        if target not in group and domains[target] and domains[target] <= digits:
+                            return {"conflict_kind": "naked_subset", "cells": coords([*group, target]),
+                                    "message": f"The highlighted {size} cells reserve digits {', '.join(map(str,sorted(digits)))}, leaving R{target[0]+1}C{target[1]+1} with no candidates."}
+        # Missing digit is a collective contradiction: the whole unit is the
+        # witness, not a guessed 'last changed' cell.
+        required = getattr(constraint, "required_values", None)
+        if required:
+            for value in sorted(required):
+                if not any(value in domains[v] for v in scope):
+                    return {"conflict_kind": "missing_digit", "cells": coords(scope),
+                            "value": value,
+                            "message": f"Digit {value} has no possible position anywhere in this highlighted unit."}
+        return {"conflict_kind": "unclassified", "cells": [],
+                "message": "This unit is inconsistent, but the recorder cannot identify a minimal conflict."}
+
     def propagate(self, domains):
         """
         Propagate constraints until stable.
@@ -88,9 +152,10 @@ class CSPSolver:
                     if not self.instrument:
                         try:
                             result = constraint.propagate(domains)
-                        except ValueError:
+                        except ValueError as exc:
                             self._trace_event("contradiction", domains,
-                                              reason=type(constraint).__name__, scope=[list(v) for v in constraint.variables])
+                                              reason=type(constraint).__name__, scope=[list(v) for v in constraint.variables],
+                                              **self._trace_conflict(constraint, domains, exc))
                             raise
                         if result:
                             changed = True
@@ -123,11 +188,12 @@ class CSPSolver:
                     try:
                         result = constraint.propagate(domains)
 
-                    except ValueError:
+                    except ValueError as exc:
                         stats["contradictions"] += 1
                         self.metrics["constraint_contradictions"] += 1
                         self._trace_event("contradiction", domains,
-                                          reason=name, scope=[list(v) for v in constraint.variables])
+                                          reason=name, scope=[list(v) for v in constraint.variables],
+                                          **self._trace_conflict(constraint, domains, exc))
                         raise
 
                     finally:
@@ -158,7 +224,9 @@ class CSPSolver:
 
                 if any(not values for values in domains.values()):
                     self._trace_event("contradiction", domains,
-                                      reason="Empty candidate domain")
+                                      reason="Empty candidate domain",
+                                      cells=[list(v) for v in self.variables if not domains[v]],
+                                      conflict_kind="empty_domain", message="A cell has no candidates.")
                     return False
 
                 assignment = {
@@ -191,7 +259,8 @@ class CSPSolver:
                             self.metrics["validation_contradictions"] += 1
 
                         self._trace_event("contradiction", domains,
-                                          reason=type(constraint).__name__, scope=[list(v) for v in constraint.variables])
+                                          reason=type(constraint).__name__, scope=[list(v) for v in constraint.variables],
+                                          **self._trace_conflict(constraint, domains))
                         return False
 
                 if not changed:
@@ -255,8 +324,6 @@ class CSPSolver:
 
         if not propagated:
             self._trace_event("dead_end", domains, reason="Contradiction")
-            self._trace_event("dead_end", domains,
-                              reason="Complete assignment invalid")
             self.backtracks += 1
 
             if self.instrument:
