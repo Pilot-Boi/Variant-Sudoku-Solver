@@ -21,6 +21,9 @@ class CSPSolver:
         self.backtracks = 0
         self.propagation_rounds = 0
         self.instrument = False
+        self.trace_enabled = False
+        self.trace_events = []
+        self._trace_last = None
         self.metrics = {}
         self._search_depth = 0
         self.reset_metrics()
@@ -48,6 +51,26 @@ class CSPSolver:
             "constraint_types": {},
         }
     
+    def _trace_event(self, kind, domains, **details):
+        """Store only changed domains; reconstructable in either direction."""
+        if not self.trace_enabled:
+            return
+        current = {v: set(values) for v, values in domains.items()}
+        changes = []
+        if self._trace_last is not None:
+            for (r, c) in self.variables:
+                before = self._trace_last[(r, c)]
+                after = current[(r, c)]
+                if before != after:
+                    changes.append([r, c, sorted(before), sorted(after)])
+        if kind == "propagate" and not changes:
+            return
+        self.trace_events.append({
+            "type": kind, "changes": changes,
+            "depth": self._search_depth, **details,
+        })
+        self._trace_last = current
+
     def propagate(self, domains):
         """
         Propagate constraints until stable.
@@ -63,8 +86,16 @@ class CSPSolver:
 
                 for constraint in self.constraints:
                     if not self.instrument:
-                        if constraint.propagate(domains):
+                        try:
+                            result = constraint.propagate(domains)
+                        except ValueError:
+                            self._trace_event("contradiction", domains,
+                                              reason=type(constraint).__name__)
+                            raise
+                        if result:
                             changed = True
+                        self._trace_event("propagate", domains,
+                                          reason=type(constraint).__name__)
                         continue
 
                     name = type(constraint).__name__
@@ -95,6 +126,8 @@ class CSPSolver:
                     except ValueError:
                         stats["contradictions"] += 1
                         self.metrics["constraint_contradictions"] += 1
+                        self._trace_event("contradiction", domains,
+                                          reason=name)
                         raise
 
                     finally:
@@ -121,8 +154,11 @@ class CSPSolver:
 
                     if result:
                         changed = True
+                    self._trace_event("propagate", domains, reason=name)
 
                 if any(not values for values in domains.values()):
+                    self._trace_event("contradiction", domains,
+                                      reason="Empty candidate domain")
                     return False
 
                 assignment = {
@@ -154,6 +190,8 @@ class CSPSolver:
                             stats["validation_contradictions"] += 1
                             self.metrics["validation_contradictions"] += 1
 
+                        self._trace_event("contradiction", domains,
+                                          reason=type(constraint).__name__)
                         return False
 
                 if not changed:
@@ -185,6 +223,7 @@ class CSPSolver:
         )
 
     def backtrack(self, domains, depth=0):
+        self._search_depth = depth
         if self.instrument:
             self.metrics["max_search_depth"] = max(
                 self.metrics["max_search_depth"], depth
@@ -215,6 +254,9 @@ class CSPSolver:
             )
 
         if not propagated:
+            self._trace_event("dead_end", domains, reason="Contradiction")
+            self._trace_event("dead_end", domains,
+                              reason="Complete assignment invalid")
             self.backtracks += 1
 
             if self.instrument:
@@ -232,6 +274,7 @@ class CSPSolver:
                 constraint.is_satisfied(solution)
                 for constraint in self.constraints
             ):
+                self._trace_event("solution", domains, reason="Solved")
                 return solution
 
             self.backtracks += 1
@@ -252,11 +295,20 @@ class CSPSolver:
             }
 
             new_domains[var] = {value}
+            self._search_depth = depth + 1
+            self._trace_event("decision", new_domains,
+                              cell=list(var), value=value,
+                              reason="MRV search decision")
 
             result = self.backtrack(new_domains, depth + 1)
 
             if result is not None:
                 return result
+
+            self._search_depth = depth
+            self._trace_event("backtrack", domains,
+                              cell=list(var), value=value,
+                              reason="Restore previous branch")
 
         self.backtracks += 1
         return None
@@ -364,4 +416,8 @@ class CSPSolver:
 
             domains[var] = {value}
 
+        if self.trace_enabled:
+            self.trace_events = []
+            self._trace_last = None
+            self._trace_event("start", domains, reason="Initial givens")
         return self.backtrack(domains)
