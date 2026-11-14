@@ -90,12 +90,12 @@ class CSPSolver:
                             result = constraint.propagate(domains)
                         except ValueError:
                             self._trace_event("contradiction", domains,
-                                              reason=type(constraint).__name__)
+                                              reason=type(constraint).__name__, scope=[list(v) for v in constraint.variables])
                             raise
                         if result:
                             changed = True
                         self._trace_event("propagate", domains,
-                                          reason=type(constraint).__name__)
+                                          reason=type(constraint).__name__, scope=[list(v) for v in constraint.variables])
                         continue
 
                     name = type(constraint).__name__
@@ -127,7 +127,7 @@ class CSPSolver:
                         stats["contradictions"] += 1
                         self.metrics["constraint_contradictions"] += 1
                         self._trace_event("contradiction", domains,
-                                          reason=name)
+                                          reason=name, scope=[list(v) for v in constraint.variables])
                         raise
 
                     finally:
@@ -154,7 +154,7 @@ class CSPSolver:
 
                     if result:
                         changed = True
-                    self._trace_event("propagate", domains, reason=name)
+                    self._trace_event("propagate", domains, reason=name, scope=[list(v) for v in constraint.variables])
 
                 if any(not values for values in domains.values()):
                     self._trace_event("contradiction", domains,
@@ -191,7 +191,7 @@ class CSPSolver:
                             self.metrics["validation_contradictions"] += 1
 
                         self._trace_event("contradiction", domains,
-                                          reason=type(constraint).__name__)
+                                          reason=type(constraint).__name__, scope=[list(v) for v in constraint.variables])
                         return False
 
                 if not changed:
